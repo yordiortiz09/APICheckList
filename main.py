@@ -25,17 +25,14 @@ def test_connection():
     Endpoint para probar la conexión a Firebird con parámetros enviados en la solicitud.
     """
     try:
-        # Leer los datos enviados en el cuerpo de la solicitud
         data = request.json
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
 
-        # Validar que los parámetros estén presentes
         if not all([dsn, user, password]):
             return jsonify({'success': False, 'message': 'Faltan parámetros: dsn, user, password'}), 400
 
-        # Intentar conectar con los datos proporcionados
         conn = connect_to_firebird(dsn, user, password)
         if conn:
             conn.close()
@@ -51,15 +48,19 @@ def test_connection():
 def insertar_formulario():
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         titulo = data.get('titulo')
 
-        if not titulo:
-            return jsonify({'error': 'El título no puede estar vacío'}), 400
+        if not all([dsn, user, password, titulo]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, titulo'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
+        # Manejo del cursor manualmente (sin contexto 'with')
         cur = conn.cursor()
         cur.execute("INSERT INTO formularios (titulo) VALUES (?)", (titulo,))
         conn.commit()
@@ -72,27 +73,34 @@ def insertar_formulario():
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# Actualizar un formulario
 @app.route('/formularios/<int:formulario_id>', methods=['PUT'])
 def actualizar_formulario(formulario_id):
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         titulo = data.get('titulo')
 
-        if not titulo:
-            return jsonify({'error': 'El título no puede estar vacío'}), 400
+        if not all([dsn, user, password, titulo]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, titulo'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
+
+
         cur.execute(
-            "UPDATE formularios SET titulo = ? WHERE id = ?",
-            (titulo, formulario_id)
-        )
+                "UPDATE formularios SET titulo = ? WHERE id = ?",
+                (titulo, formulario_id)
+            )
         conn.commit()
 
         return jsonify({'id': formulario_id, 'message': 'Formulario actualizado correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -100,12 +108,19 @@ def actualizar_formulario(formulario_id):
 @app.route('/formularios/<int:formulario_id>', methods=['DELETE'])
 def eliminar_formulario(formulario_id):
     try:
-        conn = connect_to_firebird()
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
-
         cur.execute("DELETE FROM formularios WHERE id = ?", (formulario_id,))
         conn.commit()
 
@@ -113,26 +128,36 @@ def eliminar_formulario(formulario_id):
             return jsonify({'error': 'No se encontró el formulario con el ID proporcionado'}), 404
 
         return jsonify({'message': 'Formulario eliminado correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    
 
 @app.route('/secciones/<int:seccion_id>', methods=['DELETE'])
 def eliminar_seccion(seccion_id):
     try:
-        conn = connect_to_firebird()
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor()
-
+        cur = conn.cursor() 
         cur.execute("DELETE FROM secciones WHERE id = ?", (seccion_id,))
         conn.commit()
 
         if cur.rowcount == 0:
-            return jsonify({'error': 'No se encontró la sección con el ID proporcionado'}), 404
+                return jsonify({'error': 'No se encontró la sección con el ID proporcionado'}), 404
 
         return jsonify({'message': 'Sección eliminada correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -144,13 +169,16 @@ def eliminar_seccion(seccion_id):
 def insertar_seccion():
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         formulario_id = data.get('formulario_id')
         nombre = data.get('nombre')
 
-        if not formulario_id or not nombre:
-            return jsonify({'error': 'Formulario ID y nombre son requeridos'}), 400
+        if not all([dsn, user, password, formulario_id, nombre]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, formulario_id, nombre'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
@@ -163,59 +191,68 @@ def insertar_seccion():
         conn.commit()
 
         return jsonify({'id': seccion_id, 'message': 'Sección insertada correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 
 
 @app.route('/preguntas', methods=['POST'])
 def insertar_pregunta():
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         seccion_id = data.get('seccion_id')
         texto = data.get('texto')
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
 
-        if not seccion_id or not texto or not tipo:
-            return jsonify({'error': 'Sección ID, texto y tipo son requeridos'}), 400
+        if not all([dsn, user, password, seccion_id, texto, tipo]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, seccion_id, texto, tipo'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor()
+        cur = conn.cursor() 
         cur.execute(
             "INSERT INTO preguntas (seccion_id, texto, tipo, con_filas) VALUES (?, ?, ?, ?)",
             (seccion_id, texto, tipo, int(con_filas))
-        )
+        )        
         conn.commit()
 
         cur.execute("SELECT MAX(id) FROM preguntas")
         pregunta_id = cur.fetchone()[0]
+        conn.commit()
 
         return jsonify({'id': pregunta_id, 'message': 'Pregunta insertada correctamente'})
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
     
 @app.route('/preguntas/<int:pregunta_id>', methods=['PUT'])
 def actualizar_pregunta(pregunta_id):
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         texto = data.get('texto')
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
 
-        if not texto or not tipo:
-            return jsonify({'error': 'Texto y tipo son requeridos'}), 400
+        if not all([dsn, user, password, texto, tipo]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, texto, tipo'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor()
+        cur = conn.cursor() 
         cur.execute(
             "UPDATE preguntas SET texto = ?, tipo = ?, con_filas = ? WHERE id = ?",
             (texto, tipo, int(con_filas), pregunta_id)
@@ -223,6 +260,7 @@ def actualizar_pregunta(pregunta_id):
         conn.commit()
 
         return jsonify({'id': pregunta_id, 'message': 'Pregunta actualizada correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -230,16 +268,26 @@ def actualizar_pregunta(pregunta_id):
 @app.route('/preguntas/<int:pregunta_id>', methods=['DELETE'])
 def eliminar_pregunta(pregunta_id):
     try:
-        conn = connect_to_firebird()
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor()
-
+        cur = conn.cursor() 
         cur.execute("DELETE FROM preguntas WHERE id = ?", (pregunta_id,))
         conn.commit()
+        if cur.rowcount == 0:
+            return jsonify({'error': 'No se encontró la pregunta con el ID proporcionado'}), 404
 
         return jsonify({'message': f'Pregunta con ID {pregunta_id} eliminada correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -249,16 +297,19 @@ def eliminar_pregunta(pregunta_id):
 def actualizar_seccion(seccion_id):
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         nombre = data.get('nombre')
 
-        if not nombre:
-            return jsonify({'error': 'El nombre de la sección no puede estar vacío'}), 400
+        if not all([dsn, user, password, nombre]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, nombre'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor()
+        cur = conn.cursor() 
         cur.execute(
             "UPDATE secciones SET nombre = ? WHERE id = ?",
             (nombre, seccion_id)
@@ -266,21 +317,32 @@ def actualizar_seccion(seccion_id):
         conn.commit()
 
         return jsonify({'id': seccion_id, 'message': 'Sección actualizada correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
-
-@app.route('/formularios_get', methods=['GET'])
+@app.route('/formularios_get', methods=['POST'])
 def obtener_formularios():
     try:
-        conn = connect_to_firebird()
+        # Leer los datos desde el cuerpo de la solicitud
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        # Validar que los parámetros estén presentes
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        # Conectar a la base de datos
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
+        # Crear el cursor de manera manual
         cur = conn.cursor()
-
         cur.execute("""
             SELECT
                 f.id AS formulario_id,
@@ -291,7 +353,7 @@ def obtener_formularios():
                 p.id AS pregunta_id,
                 p.texto AS pregunta_texto,
                 p.tipo AS pregunta_tipo,
-                COALESCE(p.con_filas, 0) AS pregunta_con_filas, -- Garantiza un valor predeterminado
+                COALESCE(p.con_filas, 0) AS pregunta_con_filas,
                 c.id AS columna_id,
                 c.nombre AS columna_nombre,
                 c.tipo AS columna_tipo,
@@ -310,6 +372,11 @@ def obtener_formularios():
 
         rows = cur.fetchall()
 
+        # Cerrar el cursor y la conexión
+        cur.close()
+        conn.close()
+
+        # Procesar los resultados como antes
         formularios = {}
         for row in rows:
             (formulario_id, formulario_titulo, formulario_fecha,
@@ -345,7 +412,7 @@ def obtener_formularios():
                     'id': pregunta_id,
                     'texto': pregunta_texto,
                     'tipo': pregunta_tipo,
-                    'con_filas': pregunta_con_filas,  
+                    'con_filas': pregunta_con_filas,
                     'columnas': [],
                     'opciones': []
                 }
@@ -377,27 +444,31 @@ def obtener_formularios():
         formularios_list = list(formularios.values())
 
         return jsonify(formularios_list)
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/columnas', methods=['POST'])
 def insertar_columna():
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         pregunta_id = data.get('pregunta_id')
         nombre = data.get('nombre')
         tipo = data.get('tipo')
 
-        if not pregunta_id or not nombre or not tipo:
-            return jsonify({'error': 'Pregunta ID, nombre y tipo son requeridos'}), 400
+        if not all([dsn, user, password, pregunta_id, nombre, tipo]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, pregunta_id, nombre, tipo'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor()
-
+        cur =  conn.cursor()
         cur.execute(
             "SELECT id FROM columnas WHERE pregunta_id = ? AND nombre = ?",
             (pregunta_id, nombre)
@@ -406,7 +477,6 @@ def insertar_columna():
 
         if columna_existente:
             return jsonify({'id': columna_existente[0], 'message': 'Columna ya existe'}), 200
-
         cur.execute(
             "INSERT INTO columnas (pregunta_id, nombre, tipo) VALUES (?, ?, ?)",
             (pregunta_id, nombre, tipo)
@@ -417,27 +487,30 @@ def insertar_columna():
         columna_id = cur.fetchone()[0]
 
         return jsonify({'id': columna_id, 'message': 'Columna insertada correctamente'})
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
+
 @app.route('/opciones', methods=['POST'])
 def insertar_opcion():
     try:
         data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
         columna_id = data.get('columna_id')
         pregunta_id = data.get('pregunta_id')
         valor = data.get('valor')
 
-        if not valor or not pregunta_id:
-            return jsonify({'error': 'Pregunta ID y valor son requeridos'}), 400
+        if not all([dsn, user, password, valor, pregunta_id]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, pregunta_id, valor'}), 400
 
-        conn = connect_to_firebird()
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
-
         if columna_id:
             cur.execute(
                 "SELECT id FROM opciones WHERE columna_id = ? AND valor = ?",
@@ -448,57 +521,63 @@ def insertar_opcion():
                 "SELECT id FROM opciones WHERE columna_id IS NULL AND pregunta_id = ? AND valor = ?",
                 (pregunta_id, valor)
             )
-
         opcion_existente = cur.fetchone()
-
         if opcion_existente:
             return jsonify({'id': opcion_existente[0], 'message': 'Opción ya existe'}), 200
-
         cur.execute(
             "INSERT INTO opciones (columna_id, pregunta_id, valor) VALUES (?, ?, ?)",
             (columna_id, pregunta_id, valor)
         )
         conn.commit()
-
         cur.execute("SELECT MAX(id) FROM opciones")
         opcion_id = cur.fetchone()[0]
 
         return jsonify({'id': opcion_id, 'message': 'Opción insertada correctamente'}), 200
+
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/guardar_respuestas', methods=['POST'])
 def guardar_respuestas():
     try:
         data = request.json
-        conn = connect_to_firebird()
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
-
         for respuesta in data['respuestas']:
             formulario_id = respuesta.get('formulario_id')
             seccion_id = respuesta.get('seccion_id')
             pregunta_id = respuesta.get('pregunta_id')
-            columna_id = respuesta.get('columna_id')  
+            columna_id = respuesta.get('columna_id')
             texto_respuesta = respuesta.get('texto_respuesta')
             numero_respuesta = respuesta.get('numero_respuesta')
-
+            if not all([formulario_id, seccion_id, pregunta_id]):
+                return jsonify({'error': 'Faltan datos en una de las respuestas'}), 400
             cur.execute("""
                 INSERT INTO respuestas (
                     formulario_id, seccion_id, pregunta_id, columna_id,
                     texto_respuesta, numero_respuesta
                 ) VALUES (?, ?, ?, ?, ?, ?)
             """, (formulario_id, seccion_id, pregunta_id, columna_id, texto_respuesta, numero_respuesta))
-
         conn.commit()
+
         return jsonify({'message': 'Respuestas guardadas correctamente'}), 200
 
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 
 
