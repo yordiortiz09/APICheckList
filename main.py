@@ -538,6 +538,139 @@ def insertar_opcion():
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/sync_users', methods=['POST'])
+def sync_users():
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor() 
+        cur.execute("""
+            SELECT
+                users.SC_CLAVE AS id,
+                users.TIPORIGHT AS role,
+                catj.SC_NOMBRE AS name,
+                'grupostr@grupostr.com' AS email
+            FROM
+                USERS users
+            JOIN CAT_SUJCOLECTIVOS catj ON users.SC_CLAVE = catj.SC_CLAVE;
+        """)
+        rows = cur.fetchall()
+
+        users = [
+            {
+                'id': row[0],
+                'role': row[1],
+                'name': row[2],
+                'email': row[3]
+            } for row in rows
+        ]
+
+        return jsonify({'success': True, 'users': users}), 200
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def encripta(texto: str) -> str:
+    resultado = ''
+    j = 1
+    for char in texto:
+        j += 1
+        if j > 255:
+            j = 1
+        b = ord(char)
+        c = b >> 4
+        b = (b << 4) & 0xFF
+        b = b + c
+        b = ~b & 0xFF
+        b = b ^ j
+        resultado += chr(b)
+    return resultado
+
+
+
+@app.route('/verify_user', methods=['POST'])
+def verify_user():
+    """Verifica la identidad del usuario mediante desencriptación y comparación de contraseñas."""
+    try:
+        # Obtén los datos enviados en la solicitud
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')  # Contraseña para conectarse a la BD
+        input_password = data.get('userPassword')  # Contraseña del usuario
+        user_id = data.get('userId')  # ID del usuario
+
+        # Validar los parámetros requeridos
+        if not all([dsn, user, password, input_password, user_id]):
+            return jsonify({'error': 'Faltan parámetros'}), 400
+
+        # Conexión a la base de datos
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        # Consulta la contraseña almacenada
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT users.PASS AS password
+            FROM USERS users
+            WHERE users.SC_CLAVE = ?;
+        """, (user_id,))
+        result = cur.fetchone()
+
+        # Verifica si el usuario fue encontrado
+        if not result:
+            print(f"Usuario con ID {user_id} no encontrado.")
+            return jsonify({'error': 'Usuario no encontrado'}), 404
+
+        stored_password = result[0]
+
+        # Imprime la contraseña original en bruto
+        print(f"Contraseña encriptada original desde la BD (cruda): {stored_password}")
+        print(f"Tipo de dato de la contraseña recuperada: {type(stored_password)}")
+
+        # Si el valor es None o vacío, maneja el caso
+        if not stored_password:
+            print("La contraseña recuperada está vacía o es nula.")
+            return jsonify({'error': 'Contraseña no encontrada'}), 404
+
+        # Si es un valor binario, intenta decodificar
+        if isinstance(stored_password, bytes):
+            try:
+                stored_password = stored_password.decode('ISO-8859-1')
+                print(f"Contraseña encriptada decodificada: {stored_password}")
+            except Exception as decode_error:
+                print(f"Error al decodificar la contraseña en bytes: {decode_error}")
+                return jsonify({'error': 'Error al decodificar la contraseña'}), 500
+
+        # Desencripta la contraseña almacenada
+        desencriptada = desencripta(stored_password)
+        print(f"Contraseña desencriptada: {desencriptada}")
+
+        # Compara las contraseñas
+        if desencriptada == input_password:
+            return jsonify({
+                'id': user_id,
+                'isValid': True,
+                'message': 'Acceso concedido'
+            }), 200
+        else:
+            return jsonify({'isValid': False, 'error': 'Credenciales incorrectas'}), 401
+
+    except Exception as e:
+        # Manejo de excepciones generales
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/guardar_respuestas', methods=['POST'])
 def guardar_respuestas():
@@ -555,6 +688,7 @@ def guardar_respuestas():
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
+
         for respuesta in data['respuestas']:
             formulario_id = respuesta.get('formulario_id')
             seccion_id = respuesta.get('seccion_id')
@@ -562,17 +696,34 @@ def guardar_respuestas():
             columna_id = respuesta.get('columna_id')
             texto_respuesta = respuesta.get('texto_respuesta')
             numero_respuesta = respuesta.get('numero_respuesta')
-            if not all([formulario_id, seccion_id, pregunta_id]):
+            sc_clave = respuesta.get('sc_clave')
+            firma_base64 = respuesta.get('firma')  
+
+            print(f"Respuesta: {respuesta}")
+
+            if not all([formulario_id, seccion_id, pregunta_id, sc_clave]):
                 return jsonify({'error': 'Faltan datos en una de las respuestas'}), 400
+
+            firma_binaria = None
+            if firma_base64:
+                import base64
+                firma_binaria = base64.b64decode(firma_base64)
+
             cur.execute("""
                 INSERT INTO respuestas (
                     formulario_id, seccion_id, pregunta_id, columna_id,
-                    texto_respuesta, numero_respuesta
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            """, (formulario_id, seccion_id, pregunta_id, columna_id, texto_respuesta, numero_respuesta))
+                    texto_respuesta, numero_respuesta, sc_clave, firma
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (formulario_id, seccion_id, pregunta_id, columna_id, texto_respuesta, numero_respuesta, sc_clave, firma_binaria))
+        
         conn.commit()
+        conn.close()
 
         return jsonify({'message': 'Respuestas guardadas correctamente'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+ 
 
     except Exception as e:
         print(f"Error: {str(e)}")
