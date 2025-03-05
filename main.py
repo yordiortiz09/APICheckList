@@ -60,7 +60,6 @@ def insertar_formulario():
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        # Manejo del cursor manualmente (sin contexto 'with')
         cur = conn.cursor()
         cur.execute("INSERT INTO formularios (titulo) VALUES (?)", (titulo,))
         conn.commit()
@@ -73,7 +72,6 @@ def insertar_formulario():
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# Actualizar un formulario
 @app.route('/formularios/<int:formulario_id>', methods=['PUT'])
 def actualizar_formulario(formulario_id):
     try:
@@ -163,8 +161,6 @@ def eliminar_seccion(seccion_id):
         return jsonify({'error': str(e)}), 500
 
 
-
-
 @app.route('/secciones', methods=['POST'])
 def insertar_seccion():
     try:
@@ -208,6 +204,7 @@ def insertar_pregunta():
         texto = data.get('texto')
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
+        con_foto = data.get('con_foto', False)  
 
         if not all([dsn, user, password, seccion_id, texto, tipo]):
             return jsonify({'error': 'Faltan parámetros: dsn, user, password, seccion_id, texto, tipo'}), 400
@@ -218,8 +215,8 @@ def insertar_pregunta():
 
         cur = conn.cursor() 
         cur.execute(
-            "INSERT INTO preguntas (seccion_id, texto, tipo, con_filas) VALUES (?, ?, ?, ?)",
-            (seccion_id, texto, tipo, int(con_filas))
+            "INSERT INTO preguntas (seccion_id, texto, tipo, con_filas, con_foto) VALUES (?, ?, ?, ?, ?)",
+            (seccion_id, texto, tipo, int(con_filas), int(con_foto)) 
         )        
         conn.commit()
 
@@ -244,6 +241,7 @@ def actualizar_pregunta(pregunta_id):
         texto = data.get('texto')
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
+        con_foto = data.get('con_foto', False)
 
         if not all([dsn, user, password, texto, tipo]):
             return jsonify({'error': 'Faltan parámetros: dsn, user, password, texto, tipo'}), 400
@@ -254,8 +252,8 @@ def actualizar_pregunta(pregunta_id):
 
         cur = conn.cursor() 
         cur.execute(
-            "UPDATE preguntas SET texto = ?, tipo = ?, con_filas = ? WHERE id = ?",
-            (texto, tipo, int(con_filas), pregunta_id)
+            "UPDATE preguntas SET texto = ?, tipo = ?, con_filas = ?, con_foto = ? WHERE id = ?",
+            (texto, tipo, int(con_filas), pregunta_id, int(con_foto))
         )
         conn.commit()
 
