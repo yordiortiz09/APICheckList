@@ -191,8 +191,6 @@ def insertar_seccion():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
-
 @app.route('/preguntas', methods=['POST'])
 def insertar_pregunta():
     try:
@@ -200,37 +198,40 @@ def insertar_pregunta():
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
+
         seccion_id = data.get('seccion_id')
+        pregunta_padre_id = data.get('pregunta_padre_id')
+        pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')  # ✅ Nuevo campo
         texto = data.get('texto')
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
-        con_foto = data.get('con_foto', False)  
+        con_foto = data.get('con_foto', False)
 
-        if not all([dsn, user, password, seccion_id, texto, tipo]):
-            return jsonify({'error': 'Faltan parámetros: dsn, user, password, seccion_id, texto, tipo'}), 400
+        if not all([dsn, user, password, texto, tipo]):
+            return jsonify({'error': 'Faltan parámetros obligatorios'}), 400
 
         conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor() 
-        cur.execute(
-            "INSERT INTO preguntas (seccion_id, texto, tipo, con_filas, con_foto) VALUES (?, ?, ?, ?, ?)",
-            (seccion_id, texto, tipo, int(con_filas), int(con_foto)) 
-        )        
-        conn.commit()
+        cur = conn.cursor()
 
-        cur.execute("SELECT MAX(id) FROM preguntas")
+        cur.execute("""
+            INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+        """, (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto))
+
         pregunta_id = cur.fetchone()[0]
         conn.commit()
-
-        return jsonify({'id': pregunta_id, 'message': 'Pregunta insertada correctamente'})
+        return jsonify({'id': pregunta_id, 'message': 'Pregunta insertada correctamente'}), 200
 
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-    
+
+
 @app.route('/preguntas/<int:pregunta_id>', methods=['PUT'])
 def actualizar_pregunta(pregunta_id):
     try:
@@ -242,6 +243,8 @@ def actualizar_pregunta(pregunta_id):
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
         con_foto = data.get('con_foto', False)
+        pregunta_padre_id = data.get('pregunta_padre_id') 
+        pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')  
 
         if not all([dsn, user, password, texto, tipo]):
             return jsonify({'error': 'Faltan parámetros: dsn, user, password, texto, tipo'}), 400
@@ -250,11 +253,44 @@ def actualizar_pregunta(pregunta_id):
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        cur = conn.cursor() 
-        cur.execute(
-            "UPDATE preguntas SET texto = ?, tipo = ?, con_filas = ?, con_foto = ? WHERE id = ?",
-            (texto, tipo, int(con_filas), pregunta_id, int(con_foto))
-        )
+        cur = conn.cursor()
+
+        # 🔹 Verificar si la pregunta existe antes de actualizar
+        cur.execute("SELECT id FROM preguntas WHERE id = ?", (pregunta_id,))
+        pregunta_existente = cur.fetchone()
+        if not pregunta_existente:
+            return jsonify({'error': 'La pregunta no existe'}), 404
+
+        # 🔹 Construir la consulta de actualización dinámicamente
+        campos_a_actualizar = []
+        valores = []
+
+        if texto:
+            campos_a_actualizar.append("texto = ?")
+            valores.append(texto)
+        if tipo:
+            campos_a_actualizar.append("tipo = ?")
+            valores.append(tipo)
+        if isinstance(con_filas, bool):
+            campos_a_actualizar.append("con_filas = ?")
+            valores.append(int(con_filas))
+        if isinstance(con_foto, bool):
+            campos_a_actualizar.append("con_foto = ?")
+            valores.append(int(con_foto))
+        if pregunta_padre_id is not None:
+            campos_a_actualizar.append("pregunta_padre_id = ?")
+            valores.append(pregunta_padre_id)
+        if pregunta_padre_opcion_id is not None:
+            campos_a_actualizar.append("pregunta_padre_opcion_id = ?")
+            valores.append(pregunta_padre_opcion_id)
+
+        if not campos_a_actualizar:
+            return jsonify({'message': 'No hay cambios para actualizar'}), 200
+
+        sql_update = f"UPDATE preguntas SET {', '.join(campos_a_actualizar)} WHERE id = ?"
+        valores.append(pregunta_id)
+
+        cur.execute(sql_update, valores)
         conn.commit()
 
         return jsonify({'id': pregunta_id, 'message': 'Pregunta actualizada correctamente'}), 200
@@ -262,6 +298,14 @@ def actualizar_pregunta(pregunta_id):
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+    finally:
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
+
+
 
 @app.route('/preguntas/<int:pregunta_id>', methods=['DELETE'])
 def eliminar_pregunta(pregunta_id):
@@ -320,27 +364,23 @@ def actualizar_seccion(seccion_id):
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/formularios_get', methods=['POST'])
 def obtener_formularios():
     try:
-        # Leer los datos desde el cuerpo de la solicitud
         data = request.json
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
 
-        # Validar que los parámetros estén presentes
         if not all([dsn, user, password]):
             return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
 
-        # Conectar a la base de datos
         conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        # Crear el cursor de manera manual
         cur = conn.cursor()
+        
         cur.execute("""
             SELECT
                 f.id AS formulario_id,
@@ -348,43 +388,48 @@ def obtener_formularios():
                 f.fecha_creacion AS formulario_fecha,
                 s.id AS seccion_id,
                 s.nombre AS seccion_nombre,
+
                 p.id AS pregunta_id,
                 p.texto AS pregunta_texto,
                 p.tipo AS pregunta_tipo,
                 COALESCE(p.con_filas, 0) AS pregunta_con_filas,
-                c.id AS columna_id,
-                c.nombre AS columna_nombre,
-                c.tipo AS columna_tipo,
-                o_col.id AS opcion_columna_id,
-                o_col.valor AS opcion_columna_valor,
-                o_preg.id AS opcion_pregunta_id,
-                o_preg.valor AS opcion_pregunta_valor
+                COALESCE(p.con_foto, 0) AS pregunta_con_foto,
+
+                COALESCE(p.pregunta_padre_id, 0) AS pregunta_padre_id,
+                COALESCE(p.pregunta_padre_opcion_id, 0) AS pregunta_padre_opcion_id,
+
+                o.id AS opcion_id,
+                o.valor AS opcion_valor
+
             FROM formularios f
             LEFT JOIN secciones s ON s.formulario_id = f.id
-            LEFT JOIN preguntas p ON p.seccion_id = s.id
-            LEFT JOIN columnas c ON c.pregunta_id = p.id
-            LEFT JOIN opciones o_col ON o_col.columna_id = c.id
-            LEFT JOIN opciones o_preg ON o_preg.pregunta_id = p.id
-            ORDER BY f.id, s.id, p.id, c.id, o_col.id, o_preg.id
+            LEFT JOIN preguntas p ON p.seccion_id = s.id OR p.pregunta_padre_id IS NOT NULL OR p.pregunta_padre_opcion_id IS NOT NULL
+            LEFT JOIN opciones o ON o.pregunta_id = p.id
+            ORDER BY f.id, s.id, p.id, o.id;
         """)
 
         rows = cur.fetchall()
-
-        # Cerrar el cursor y la conexión
         cur.close()
         conn.close()
 
-        # Procesar los resultados como antes
         formularios = {}
+        preguntas_dict = {}
+        opciones_dict = {}
+
+        parent_map_pregunta = {} 
+        parent_map_opcion = {}  
+
+
         for row in rows:
             (formulario_id, formulario_titulo, formulario_fecha,
              seccion_id, seccion_nombre,
-             pregunta_id, pregunta_texto, pregunta_tipo, pregunta_con_filas,
-             columna_id, columna_nombre, columna_tipo,
-             opcion_columna_id, opcion_columna_valor,
-             opcion_pregunta_id, opcion_pregunta_valor) = row
+             pregunta_id, pregunta_texto, pregunta_tipo,
+             pregunta_con_filas, pregunta_con_foto,
+             pregunta_padre_id, pregunta_padre_opcion_id,
+             opcion_id, opcion_valor) = row
 
             pregunta_con_filas = bool(pregunta_con_filas)
+            pregunta_con_foto = bool(pregunta_con_foto)
 
             if formulario_id not in formularios:
                 formularios[formulario_id] = {
@@ -395,57 +440,73 @@ def obtener_formularios():
                 }
             formulario = formularios[formulario_id]
 
-            seccion = next((s for s in formulario['secciones'] if s['id'] == seccion_id), None)
-            if not seccion and seccion_id is not None:
-                seccion = {
-                    'id': seccion_id,
-                    'nombre': seccion_nombre,
-                    'preguntas': []
-                }
-                formulario['secciones'].append(seccion)
-
-            pregunta = next((p for p in seccion['preguntas'] if p['id'] == pregunta_id), None) if seccion else None
-            if not pregunta and pregunta_id is not None:
-                pregunta = {
-                    'id': pregunta_id,
-                    'texto': pregunta_texto,
-                    'tipo': pregunta_tipo,
-                    'con_filas': pregunta_con_filas,
-                    'columnas': [],
-                    'opciones': []
-                }
-                seccion['preguntas'].append(pregunta)
-
-            if columna_id and pregunta:
-                columna = next((c for c in pregunta['columnas'] if c['id'] == columna_id), None)
-                if not columna:
-                    columna = {
-                        'id': columna_id,
-                        'nombre': columna_nombre,
-                        'tipo': columna_tipo,
-                        'opciones': []
+            seccion = None
+            if seccion_id is not None:
+                seccion = next((sec for sec in formulario['secciones'] if sec['id'] == seccion_id), None)
+                if not seccion:
+                    seccion = {
+                        'id': seccion_id,
+                        'nombre': seccion_nombre,
+                        'preguntas': []
                     }
-                    pregunta['columnas'].append(columna)
+                    formulario['secciones'].append(seccion)
 
-                if opcion_columna_id and opcion_columna_valor:
-                    columna['opciones'].append({
-                        'id': opcion_columna_id,
-                        'valor': opcion_columna_valor
-                    })
+            if pregunta_id is not None:
+                if pregunta_id not in preguntas_dict:
+                    preguntas_dict[pregunta_id] = {
+                        'id': pregunta_id,
+                        'texto': pregunta_texto,
+                        'tipo': pregunta_tipo,
+                        'con_filas': pregunta_con_filas,
+                        'con_foto': pregunta_con_foto,
+                        'opciones': [],
+                        'subPreguntas': []
+                    }
 
-            if pregunta and opcion_pregunta_id and opcion_pregunta_valor:
-                pregunta['opciones'].append({
-                    'id': opcion_pregunta_id,
-                    'valor': opcion_pregunta_valor
-                })
+                if pregunta_padre_id > 0:
+                    parent_map_pregunta[pregunta_id] = pregunta_padre_id
+                if pregunta_padre_opcion_id > 0:
+                    parent_map_opcion[pregunta_id] = pregunta_padre_opcion_id
 
-        formularios_list = list(formularios.values())
+            if opcion_id is not None:
+                if opcion_id not in opciones_dict:
+                    opciones_dict[opcion_id] = {
+                        'id': opcion_id,
+                        'valor': opcion_valor,
+                        'subPreguntas': []
+                    }
 
-        return jsonify(formularios_list)
+            if pregunta_id is not None and opcion_id is not None:
+                if opcion_id in opciones_dict:
+                    opcion = opciones_dict[opcion_id]
+                    if opcion not in preguntas_dict[pregunta_id]['opciones']:
+                        preguntas_dict[pregunta_id]['opciones'].append(opcion)
+
+            if pregunta_id is not None and pregunta_padre_id == 0 and pregunta_padre_opcion_id == 0 and seccion:
+                if preguntas_dict[pregunta_id] not in seccion['preguntas']:
+                    seccion['preguntas'].append(preguntas_dict[pregunta_id])
+
+       
+        for p_id, p_data in preguntas_dict.items():
+            padre_id = parent_map_pregunta.get(p_id, 0)
+            padre_opcion_id = parent_map_opcion.get(p_id, 0)
+
+            if padre_id > 0 and padre_id in preguntas_dict:
+                padre_pregunta = preguntas_dict[padre_id]
+                if p_data not in padre_pregunta['subPreguntas']:
+                    padre_pregunta['subPreguntas'].append(p_data)
+
+            elif padre_opcion_id > 0 and padre_opcion_id in opciones_dict:
+                padre_opcion = opciones_dict[padre_opcion_id]
+                if p_data not in padre_opcion['subPreguntas']:
+                    padre_opcion['subPreguntas'].append(p_data)
+
+        return jsonify(list(formularios.values()))
 
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/columnas', methods=['POST'])
@@ -489,7 +550,7 @@ def insertar_columna():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
 @app.route('/opciones', methods=['POST'])
 def insertar_opcion():
     try:
@@ -498,35 +559,37 @@ def insertar_opcion():
         user = data.get('user')
         password = data.get('password')
         columna_id = data.get('columna_id')
-        pregunta_id = data.get('pregunta_id')
+        pregunta_id = data.get('pregunta_id')  # Pregunta principal o subpregunta
         valor = data.get('valor')
 
+        # Se requiere dsn, user, password, valor y pregunta_id.
         if not all([dsn, user, password, valor, pregunta_id]):
-            return jsonify({'error': 'Faltan parámetros: dsn, user, password, pregunta_id, valor'}), 400
+            return jsonify({'error': 'Faltan parámetros obligatorios'}), 400
 
         conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
-        if columna_id:
-            cur.execute(
-                "SELECT id FROM opciones WHERE columna_id = ? AND valor = ?",
-                (columna_id, valor)
-            )
-        else:
-            cur.execute(
-                "SELECT id FROM opciones WHERE columna_id IS NULL AND pregunta_id = ? AND valor = ?",
-                (pregunta_id, valor)
-            )
+
+        # Buscar si la opción ya existe para esa pregunta
+        cur.execute(
+            "SELECT id FROM opciones WHERE pregunta_id = ? AND valor = ?",
+            (pregunta_id, valor)
+        )
+
         opcion_existente = cur.fetchone()
         if opcion_existente:
             return jsonify({'id': opcion_existente[0], 'message': 'Opción ya existe'}), 200
+
+        # Insertar la nueva opción
         cur.execute(
             "INSERT INTO opciones (columna_id, pregunta_id, valor) VALUES (?, ?, ?)",
             (columna_id, pregunta_id, valor)
         )
         conn.commit()
+
+        # Obtener el ID de la opción insertada
         cur.execute("SELECT MAX(id) FROM opciones")
         opcion_id = cur.fetchone()[0]
 
@@ -535,6 +598,7 @@ def insertar_opcion():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/sync_users', methods=['POST'])
 def sync_users():
