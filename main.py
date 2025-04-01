@@ -44,6 +44,78 @@ def test_connection():
         print(f"Error: {str(e)}")
         return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
     
+
+@app.route('/servicios', methods=['POST'])
+def obtener_todos_los_articulos():
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+        cur.execute("SELECT clave, nombre, unidad, precio FROM ARTICULOVENTA")
+        resultados = cur.fetchall()
+
+        articulos = [
+            {
+                'clave': row[0],
+                'nombre': row[1],
+                'unidad': row[2],
+                'precio': row[3],
+            }
+            for row in resultados
+        ]
+
+        return jsonify(articulos)
+
+    except Exception as e:
+        print(f"Error en /servicios: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/clientes', methods=['POST'])
+def obtener_clientes():
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a Firebird'}), 500
+
+        cur = conn.cursor()
+        query = """
+            SELECT sc_cliente.sc_clave, cat_sujcolectivos.sc_nombre
+            FROM sc_cliente, cat_sujcolectivos, tipocliente
+            WHERE sc_cliente.sc_clave = cat_sujcolectivos.sc_clave
+              AND sc_cliente.scc_tipo = tipocliente.clave
+              AND sc_cliente.SCC_ACTIVO = 1
+        """
+        cur.execute(query)
+        resultados = cur.fetchall()
+
+        clientes = [{'clave': row[0], 'nombre': row[1]} for row in resultados]
+
+        return jsonify(clientes)
+
+    except Exception as e:
+        print(f"Error en /clientes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+
 @app.route('/formularios', methods=['POST'])
 def insertar_formulario():
     try:
@@ -191,6 +263,7 @@ def insertar_seccion():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    
 @app.route('/preguntas', methods=['POST'])
 def insertar_pregunta():
     try:
@@ -201,7 +274,7 @@ def insertar_pregunta():
 
         seccion_id = data.get('seccion_id')
         pregunta_padre_id = data.get('pregunta_padre_id')
-        pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')  # ✅ Nuevo campo
+        pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')
         texto = data.get('texto')
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
@@ -216,6 +289,10 @@ def insertar_pregunta():
 
         cur = conn.cursor()
 
+        # 🔹 Validar que la pregunta tenga un padre o una sección
+        if seccion_id is None and pregunta_padre_id is None and pregunta_padre_opcion_id is None:
+            return jsonify({'error': 'Error: Una pregunta debe pertenecer a una sección o tener un padre'}), 400
+
         cur.execute("""
             INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -224,13 +301,12 @@ def insertar_pregunta():
 
         pregunta_id = cur.fetchone()[0]
         conn.commit()
+        print(f'🟢 Pregunta insertada en BD: ID {pregunta_id}, Sección: {seccion_id}, PadrePregunta: {pregunta_padre_id}, PadreOpción: {pregunta_padre_opcion_id}')
         return jsonify({'id': pregunta_id, 'message': 'Pregunta insertada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"🔴 Error al insertar pregunta: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
-
 
 @app.route('/preguntas/<int:pregunta_id>', methods=['PUT'])
 def actualizar_pregunta(pregunta_id):
@@ -243,11 +319,12 @@ def actualizar_pregunta(pregunta_id):
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
         con_foto = data.get('con_foto', False)
-        pregunta_padre_id = data.get('pregunta_padre_id') 
-        pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')  
+        pregunta_padre_id = data.get('pregunta_padre_id')
+        pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')
+        seccion_id = data.get('seccion_id')
 
         if not all([dsn, user, password, texto, tipo]):
-            return jsonify({'error': 'Faltan parámetros: dsn, user, password, texto, tipo'}), 400
+            return jsonify({'error': 'Faltan parámetros'}), 400
 
         conn = connect_to_firebird(dsn, user, password)
         if not conn:
@@ -256,12 +333,18 @@ def actualizar_pregunta(pregunta_id):
         cur = conn.cursor()
 
         # 🔹 Verificar si la pregunta existe antes de actualizar
-        cur.execute("SELECT id FROM preguntas WHERE id = ?", (pregunta_id,))
+        cur.execute("SELECT seccion_id FROM preguntas WHERE id = ?", (pregunta_id,))
         pregunta_existente = cur.fetchone()
         if not pregunta_existente:
             return jsonify({'error': 'La pregunta no existe'}), 404
 
-        # 🔹 Construir la consulta de actualización dinámicamente
+        seccion_id_actual = pregunta_existente[0]
+
+        # 🔹 Validación: Si no tiene sección, debe tener un padre
+        if seccion_id is None and pregunta_padre_id is None and pregunta_padre_opcion_id is None:
+            return jsonify({'error': 'Error: Una pregunta debe tener una sección o un padre'}), 400
+
+        # 🔹 Construcción dinámica de la actualización
         campos_a_actualizar = []
         valores = []
 
@@ -283,6 +366,9 @@ def actualizar_pregunta(pregunta_id):
         if pregunta_padre_opcion_id is not None:
             campos_a_actualizar.append("pregunta_padre_opcion_id = ?")
             valores.append(pregunta_padre_opcion_id)
+        if seccion_id is not None:
+            campos_a_actualizar.append("seccion_id = ?")
+            valores.append(seccion_id)
 
         if not campos_a_actualizar:
             return jsonify({'message': 'No hay cambios para actualizar'}), 200
@@ -296,7 +382,7 @@ def actualizar_pregunta(pregunta_id):
         return jsonify({'id': pregunta_id, 'message': 'Pregunta actualizada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"🔴 Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
     finally:
@@ -304,9 +390,6 @@ def actualizar_pregunta(pregunta_id):
             cur.close()
         if 'conn' in locals():
             conn.close()
-
-
-
 @app.route('/preguntas/<int:pregunta_id>', methods=['DELETE'])
 def eliminar_pregunta(pregunta_id):
     try:
@@ -751,6 +834,11 @@ def guardar_respuestas():
 
         cur = conn.cursor()
 
+        cur.execute("SELECT MAX(respuesta_grupo_id) FROM respuestas")
+        last_group_id = cur.fetchone()[0]
+
+        respuesta_grupo_id = (last_group_id + 1) if last_group_id else 1
+
         for respuesta in data['respuestas']:
             formulario_id = respuesta.get('formulario_id')
             seccion_id = respuesta.get('seccion_id')
@@ -759,7 +847,12 @@ def guardar_respuestas():
             texto_respuesta = respuesta.get('texto_respuesta')
             numero_respuesta = respuesta.get('numero_respuesta')
             sc_clave = respuesta.get('sc_clave')
-            firma_base64 = respuesta.get('firma')  
+            firma_base64 = respuesta.get('firma')
+
+            cantidad = respuesta.get('cantidad')
+            precio_unitario = respuesta.get('precio_unitario')
+            importe_total = respuesta.get('importe_total')
+            articulo_clave = respuesta.get('articulo_clave')
 
             print(f"Respuesta: {respuesta}")
 
@@ -774,21 +867,23 @@ def guardar_respuestas():
             cur.execute("""
                 INSERT INTO respuestas (
                     formulario_id, seccion_id, pregunta_id, columna_id,
-                    texto_respuesta, numero_respuesta, sc_clave, firma
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (formulario_id, seccion_id, pregunta_id, columna_id, texto_respuesta, numero_respuesta, sc_clave, firma_binaria))
+                    texto_respuesta, numero_respuesta, sc_clave, firma,
+                    cantidad, precio_unitario, importe_total, articulo_clave,
+                    respuesta_grupo_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                formulario_id, seccion_id, pregunta_id, columna_id,
+                texto_respuesta, numero_respuesta, sc_clave, firma_binaria,
+                cantidad, precio_unitario, importe_total, articulo_clave,
+                respuesta_grupo_id  
+            ))
         
         conn.commit()
         conn.close()
 
-        return jsonify({'message': 'Respuestas guardadas correctamente'}), 200
+        return jsonify({'message': 'Respuestas guardadas correctamente', 'respuesta_grupo_id': respuesta_grupo_id}), 200
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
- 
-
-    except Exception as e:
-        print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
