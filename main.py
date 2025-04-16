@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 import fdb
+import datetime
+
 
 app = Flask(__name__)
 
@@ -816,7 +818,6 @@ def verify_user():
         # Manejo de excepciones generales
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 @app.route('/guardar_respuestas', methods=['POST'])
 def guardar_respuestas():
     try:
@@ -834,9 +835,9 @@ def guardar_respuestas():
 
         cur = conn.cursor()
 
+        # Obtener el último ID de grupo de respuestas
         cur.execute("SELECT MAX(respuesta_grupo_id) FROM respuestas")
         last_group_id = cur.fetchone()[0]
-
         respuesta_grupo_id = (last_group_id + 1) if last_group_id else 1
 
         for respuesta in data['respuestas']:
@@ -848,13 +849,10 @@ def guardar_respuestas():
             numero_respuesta = respuesta.get('numero_respuesta')
             sc_clave = respuesta.get('sc_clave')
             firma_base64 = respuesta.get('firma')
-
             cantidad = respuesta.get('cantidad')
             precio_unitario = respuesta.get('precio_unitario')
             importe_total = respuesta.get('importe_total')
             articulo_clave = respuesta.get('articulo_clave')
-
-            print(f"Respuesta: {respuesta}")
 
             if not all([formulario_id, seccion_id, pregunta_id, sc_clave]):
                 return jsonify({'error': 'Faltan datos en una de las respuestas'}), 400
@@ -875,16 +873,33 @@ def guardar_respuestas():
                 formulario_id, seccion_id, pregunta_id, columna_id,
                 texto_respuesta, numero_respuesta, sc_clave, firma_binaria,
                 cantidad, precio_unitario, importe_total, articulo_clave,
-                respuesta_grupo_id  
+                respuesta_grupo_id 
             ))
-        
+
+        cur.execute("SELECT COUNT(*) FROM rdb$procedures WHERE rdb$procedure_name = 'PROC_GENERA_PEDIDO'")
+        existe_proc = cur.fetchone()[0]
+
+        if existe_proc:
+            print(respuesta_grupo_id)
+            cur.execute("EXECUTE PROCEDURE PROC_GENERA_PEDIDO(?)", (respuesta_grupo_id,))
+            print("PEDIDO GENERADO")
+        else:
+            print("⚠️ El procedimiento PROC_GENERA_PEDIDO no existe. Se omitió su ejecución.")
+
         conn.commit()
         conn.close()
 
-        return jsonify({'message': 'Respuestas guardadas correctamente', 'respuesta_grupo_id': respuesta_grupo_id}), 200
+        return jsonify({
+            'message': 'Respuestas guardadas correctamente',
+            'respuesta_grupo_id': respuesta_grupo_id,
+            'procedimiento_ejecutado': bool(existe_proc)
+        }), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+
 
 
 
