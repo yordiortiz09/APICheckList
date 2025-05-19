@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import fdb
 import datetime
+from decimal import Decimal
 
 
 app = Flask(__name__)
@@ -71,7 +72,7 @@ def obtener_todos_los_articulos():
                 'clave': row[0],
                 'nombre': row[1],
                 'unidad': row[2],
-                'precio': row[3],
+                'precio': float(round(row[3] + (row[3] * Decimal('0.16')), 2))  
             }
             for row in resultados
         ]
@@ -81,7 +82,6 @@ def obtener_todos_los_articulos():
     except Exception as e:
         print(f"Error en /servicios: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
 @app.route('/clientes', methods=['POST'])
 def obtener_clientes():
     try:
@@ -647,7 +647,6 @@ def insertar_opcion():
         pregunta_id = data.get('pregunta_id')  # Pregunta principal o subpregunta
         valor = data.get('valor')
 
-        # Se requiere dsn, user, password, valor y pregunta_id.
         if not all([dsn, user, password, valor, pregunta_id]):
             return jsonify({'error': 'Faltan parámetros obligatorios'}), 400
 
@@ -657,7 +656,6 @@ def insertar_opcion():
 
         cur = conn.cursor()
 
-        # Buscar si la opción ya existe para esa pregunta
         cur.execute(
             "SELECT id FROM opciones WHERE pregunta_id = ? AND valor = ?",
             (pregunta_id, valor)
@@ -667,14 +665,12 @@ def insertar_opcion():
         if opcion_existente:
             return jsonify({'id': opcion_existente[0], 'message': 'Opción ya existe'}), 200
 
-        # Insertar la nueva opción
         cur.execute(
             "INSERT INTO opciones (columna_id, pregunta_id, valor) VALUES (?, ?, ?)",
             (columna_id, pregunta_id, valor)
         )
         conn.commit()
 
-        # Obtener el ID de la opción insertada
         cur.execute("SELECT MAX(id) FROM opciones")
         opcion_id = cur.fetchone()[0]
 
@@ -727,97 +723,91 @@ def sync_users():
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-def encripta(texto: str) -> str:
-    resultado = ''
-    j = 1
-    for char in texto:
-        j += 1
-        if j > 255:
-            j = 1
-        b = ord(char)
-        c = b >> 4
-        b = (b << 4) & 0xFF
-        b = b + c
-        b = ~b & 0xFF
-        b = b ^ j
-        resultado += chr(b)
-    return resultado
-
-
 
 @app.route('/verify_user', methods=['POST'])
 def verify_user():
-    """Verifica la identidad del usuario mediante desencriptación y comparación de contraseñas."""
+    """Verifica si el usuario y la contraseña son correctos."""
     try:
-        # Obtén los datos enviados en la solicitud
+        data = request.json
+        user_id = data.get('user_id')  
+        password = data.get('password')  
+        
+        dsn = data.get('dsn')
+        user = data.get('user')
+        db_password = data.get('db_password')  
+
+        if not all([user_id, password, dsn, user, db_password]):
+            return jsonify({'error': 'Faltan parámetros: user_id, password, dsn, user, db_password'}), 400
+
+        conn = connect_to_firebird(dsn, user, db_password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+       
+
+        cur.execute("SELECT PASS, ROL FROM USERS_APP WHERE SC_CLAVE = ?", (user_id,))
+        row = cur.fetchone()
+
+        if row and row[0] == password:
+            user_role = row[1] 
+            return jsonify({
+                'success': True,
+                'message': 'Usuario verificado correctamente',
+                'role': user_role
+            }), 200
+
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    
+@app.route('/get_users', methods=['POST'])
+def get_users():
+    try:
         data = request.json
         dsn = data.get('dsn')
         user = data.get('user')
-        password = data.get('password')  # Contraseña para conectarse a la BD
-        input_password = data.get('userPassword')  # Contraseña del usuario
-        user_id = data.get('userId')  # ID del usuario
+        password = data.get('password')
 
-        # Validar los parámetros requeridos
-        if not all([dsn, user, password, input_password, user_id]):
-            return jsonify({'error': 'Faltan parámetros'}), 400
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
 
-        # Conexión a la base de datos
         conn = connect_to_firebird(dsn, user, password)
         if not conn:
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
-        # Consulta la contraseña almacenada
         cur = conn.cursor()
         cur.execute("""
-            SELECT users.PASS AS password
-            FROM USERS users
-            WHERE users.SC_CLAVE = ?;
-        """, (user_id,))
-        result = cur.fetchone()
+            SELECT 
+                u.ID, 
+                u.SC_CLAVE, 
+                c.SC_NOMBRE, 
+                u.ROL
+            FROM 
+                USERS_APP u
+            JOIN 
+                CAT_SUJCOLECTIVOS c ON u.SC_CLAVE = c.SC_CLAVE
+        """)
+        rows = cur.fetchall()
 
-        # Verifica si el usuario fue encontrado
-        if not result:
-            print(f"Usuario con ID {user_id} no encontrado.")
-            return jsonify({'error': 'Usuario no encontrado'}), 404
+        usuarios = []
+        for row in rows:
+            usuarios.append({
+                'id': row[0],
+                'sc_clave': row[1],
+                'sc_nombre': row[2],
+                'rol': row[3]
+            })
 
-        stored_password = result[0]
+        conn.close()
 
-        # Imprime la contraseña original en bruto
-        print(f"Contraseña encriptada original desde la BD (cruda): {stored_password}")
-        print(f"Tipo de dato de la contraseña recuperada: {type(stored_password)}")
-
-        # Si el valor es None o vacío, maneja el caso
-        if not stored_password:
-            print("La contraseña recuperada está vacía o es nula.")
-            return jsonify({'error': 'Contraseña no encontrada'}), 404
-
-        # Si es un valor binario, intenta decodificar
-        if isinstance(stored_password, bytes):
-            try:
-                stored_password = stored_password.decode('ISO-8859-1')
-                print(f"Contraseña encriptada decodificada: {stored_password}")
-            except Exception as decode_error:
-                print(f"Error al decodificar la contraseña en bytes: {decode_error}")
-                return jsonify({'error': 'Error al decodificar la contraseña'}), 500
-
-        # Desencripta la contraseña almacenada
-        desencriptada = desencripta(stored_password)
-        print(f"Contraseña desencriptada: {desencriptada}")
-
-        # Compara las contraseñas
-        if desencriptada == input_password:
-            return jsonify({
-                'id': user_id,
-                'isValid': True,
-                'message': 'Acceso concedido'
-            }), 200
-        else:
-            return jsonify({'isValid': False, 'error': 'Credenciales incorrectas'}), 401
+        return jsonify({'usuarios': usuarios}), 200
 
     except Exception as e:
-        # Manejo de excepciones generales
-        print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
 @app.route('/guardar_respuestas', methods=['POST'])
 def guardar_respuestas():
     try:
@@ -835,7 +825,6 @@ def guardar_respuestas():
 
         cur = conn.cursor()
 
-        # Obtener el último ID de grupo de respuestas
         cur.execute("SELECT MAX(respuesta_grupo_id) FROM respuestas")
         last_group_id = cur.fetchone()[0]
         respuesta_grupo_id = (last_group_id + 1) if last_group_id else 1
@@ -897,11 +886,6 @@ def guardar_respuestas():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-
-
-
-
 
 
 if __name__ == '__main__':
