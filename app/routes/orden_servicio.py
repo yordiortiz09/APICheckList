@@ -68,9 +68,16 @@ def generar_orden_servicio(pedido_id):
         cur.execute(query_articulos)
         articulos = [{"nombre": row[2], "importe": row[3]} for row in cur.fetchall()]
         print(f"Artículos obtenidos: {articulos}")
+        campos_pago = {
+        "tipo_pago": obtener_campo(4),
+        "monto": obtener_campo(1),
+        "forma_pago": obtener_campo(25),
+        "otros": obtener_campo(26),
+    }
 
-        pdf_bytes = generar_pdf(datos, articulos)
 
+        pdf_bytes = generar_pdf(datos, articulos, campos_pago)
+ 
         response = make_response(pdf_bytes)
         response.headers.set('Content-Type', 'application/pdf')
         response.headers.set('Content-Disposition', f'attachment; filename=orden_servicio_{pedido_id}.pdf')

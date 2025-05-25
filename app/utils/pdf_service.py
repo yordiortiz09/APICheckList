@@ -50,7 +50,7 @@ class PDF(FPDF):
         self.cell(0, 6, "SEBASTIAN JARDON AVILA", ln=True, align="C")
         self.cell(0, 6, "RECOLECTOR", ln=True, align="C")
 
-def generar_pdf(datos: dict, articulos: list):
+def generar_pdf(datos: dict, articulos: list, campos: dict):
     pdf = PDF()
     pdf.add_page()
 
@@ -115,45 +115,54 @@ def generar_pdf(datos: dict, articulos: list):
     pdf.set_font("Arial", "B", 10)
     pdf.cell(150, 8, "IMPORTE TOTAL DEL SERVICIO:", border=0)
     pdf.cell(40, 8, f"${total:,.2f}", border=0, ln=True, align="R")
-
-    # Detalles del pago
+    # Extrae los campos necesarios (esto ya deberías tenerlo hecho antes)
+    tipo_pago = campos["tipo_pago"].lower() if campos["tipo_pago"] else ""
+    monto = campos["monto"] or ""
+    forma_pago = campos["forma_pago"].lower() if campos["forma_pago"] else ""
+    otros = campos["otros"] or ""
+    
+    # DETALLES DEL PAGO
     pdf.set_font("Arial", "B", 9)
     pdf.cell(95, 6, "DETALLES DEL PAGO", ln=True)
-
+    
     pdf.ln(2)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(22, 6, "ANTICIPO:", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(28, 6, "", border=1)
+    pdf.cell(28, 6, monto if tipo_pago == "anticipo" else "", border=1)
+    
     pdf.set_font("Arial", "B", 9)
     pdf.cell(25, 6, "PAGO TOTAL:", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(28, 6, "", border=1)
+    pdf.cell(28, 6, monto if tipo_pago != "anticipo" else "", border=1)
+    
     pdf.set_font("Arial", "B", 9)
     pdf.cell(38, 6, "FECHA LIQUIDACIÓN:", ln=0)
     pdf.set_font("Arial", "", 9)
     pdf.cell(0, 6, "", border="B", ln=1)
-
+    
     pdf.ln(2)
     pdf.cell(35, 6, "FORMA DE PAGO:", ln=0)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(20, 6, "EFECTIVO:", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(10, 6, "", border=1)
+    pdf.cell(10, 6, "X" if "efectivo" in forma_pago else "", border=1)
+    
     pdf.cell(10)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(20, 6, "TARJETA:", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(10, 6, "", border=1)
+    pdf.cell(10, 6, "X" if "tarjeta" in forma_pago else "", border=1)
+    
     pdf.cell(10)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(55, 6, "TRANSFERENCIA O DEPÓSITO:", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(10, 6, "", border=1, ln=1)
-
+    pdf.cell(10, 6, "X" if "transferencia" in forma_pago or "depósito" in forma_pago else "", border=1, ln=1)
+    
     pdf.cell(45, 6, "OTROS (ESPECIFIQUE):", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(0, 6, "", border="B", ln=1)
+    pdf.cell(0, 6, otros, border="B", ln=1)
 
     pdf.ln(4)
     pdf.set_font("Arial", "", 8)

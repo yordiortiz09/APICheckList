@@ -60,13 +60,24 @@ def guardar_respuestas():
                 respuesta_grupo_id 
             ))
 
+        # Ejecutar procedimiento de generación de pedido
         cur.execute("SELECT COUNT(*) FROM rdb$procedures WHERE rdb$procedure_name = 'PROC_GENERA_PEDIDO'")
         existe_proc = cur.fetchone()[0]
 
+        pedido_clave = None
+
         if existe_proc:
-            print(respuesta_grupo_id)
             cur.execute("EXECUTE PROCEDURE PROC_GENERA_PEDIDO(?)", (respuesta_grupo_id,))
-            print("PEDIDO GENERADO")
+            print("✅ Pedido generado")
+            cur.execute("SELECT CLAVE FROM PEDIDOS WHERE GRUPO_RESP = ?", (respuesta_grupo_id,))
+            pedido_row = cur.fetchone()
+            print(f"Pedido encontrado: {pedido_row}")
+
+            if pedido_row:
+                pedido_clave = pedido_row[0]
+                print(f"Pedido clave: {pedido_clave}")
+            else:
+                print("⚠️ No se encontró pedido con ese grupo de respuestas.")
         else:
             print("⚠️ El procedimiento PROC_GENERA_PEDIDO no existe. Se omitió su ejecución.")
 
@@ -76,6 +87,7 @@ def guardar_respuestas():
         return jsonify({
             'message': 'Respuestas guardadas correctamente',
             'respuesta_grupo_id': respuesta_grupo_id,
+            'pedido_clave': pedido_clave,
             'procedimiento_ejecutado': bool(existe_proc)
         }), 200
 

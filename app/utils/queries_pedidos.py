@@ -29,6 +29,7 @@ def get_valor_campo():
       AND pedidoscampos.cc_clavecampo = :campo_id
     """
 
+
 CAMPOS_PEDIDO = {
     "mascota": 13,
     "veterinario": 14,
@@ -40,5 +41,11 @@ CAMPOS_PEDIDO = {
     "contacto": 20,
     "lugar": 21,
     "domicilio": 22,
-    "telefono": 23
+    "telefono": 23,
+    "tipo_pago": 4,
+    "monto": 1,
+    "forma_pago": 25,
+    "otros": 26,
 }
+
+
