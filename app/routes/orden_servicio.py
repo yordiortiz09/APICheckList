@@ -28,20 +28,24 @@ def generar_orden_servicio(pedido_id):
 
         cur = conn.cursor()
 
+        cur.execute(f"SELECT clave, referencia FROM pedidos WHERE clave = {pedido_id}")
+        pedido_info = cur.fetchone()
+        if not pedido_info:
+            return jsonify({"error": "No se encontró el pedido"}), 404
+
+        clave_pedido = pedido_info[0]
+        referencia_pedido = pedido_info[1]
+
         def obtener_campo(clavecampo):
-            print(f"Buscando pedido: {pedido_id} y campo: {clavecampo}")
-            clavecampo = int(clavecampo)
-            query = f"""
+            cur.execute(f"""
                 SELECT pc_valor FROM pedidoscampos
                 WHERE pc_claveventa = {pedido_id}
                 AND cc_clavecampo = {clavecampo}
-            """
-            print(f"Ejecutando query: {query}")
-            cur.execute(query)
+            """)
             resultado = cur.fetchone()
-            print(f"Resultado: {resultado}")
             return resultado[0] if resultado else ""
 
+        # 🔹 Datos del pedido
         datos = {
             "NOMBRE DE LA MASCOTA": obtener_campo(13),
             "VETERINARIO": obtener_campo(14),
@@ -55,29 +59,28 @@ def generar_orden_servicio(pedido_id):
             "¿CÓMO SUPO DE NOSOTROS?": obtener_campo(20),
             "LUGAR DE RECOLECCION": obtener_campo(21),
             "ESPECIFICACIONES": "",
-            "FAMILIA": obtener_campo(20),
+            "FAMILIA": obtener_campo(19),
         }
 
         query_articulos = f"""
-             SELECT pedidosartic.clave, pedidosartic.clvarticulo, articuloventa.nombre articulo,
-                    ROUND((pedidosartic.cantidadalter * pedidosartic.precioalter) + ((pedidosartic.cantidadalter * pedidosartic.precioalter)*0.16)) AS importe
-             FROM pedidosartic
-             LEFT OUTER JOIN articuloventa ON pedidosartic.clvarticulo = articuloventa.clave
-             WHERE pedidosartic.clvventa = {pedido_id}
-         """
+            SELECT pedidosartic.clave, pedidosartic.clvarticulo, articuloventa.nombre articulo,
+                   ROUND((pedidosartic.cantidadalter * pedidosartic.precioalter) + ((pedidosartic.cantidadalter * pedidosartic.precioalter)*0.16)) AS importe
+            FROM pedidosartic
+            LEFT OUTER JOIN articuloventa ON pedidosartic.clvarticulo = articuloventa.clave
+            WHERE pedidosartic.clvventa = {pedido_id}
+        """
         cur.execute(query_articulos)
         articulos = [{"nombre": row[2], "importe": row[3]} for row in cur.fetchall()]
-        print(f"Artículos obtenidos: {articulos}")
+
         campos_pago = {
-        "tipo_pago": obtener_campo(4),
-        "monto": obtener_campo(1),
-        "forma_pago": obtener_campo(25),
-        "otros": obtener_campo(26),
-    }
+            "tipo_pago": obtener_campo(4),
+            "monto": obtener_campo(1),
+            "forma_pago": obtener_campo(25),
+            "otros": obtener_campo(26),
+        }
 
+        pdf_bytes = generar_pdf(datos, articulos, campos_pago, clave_pedido, referencia_pedido)
 
-        pdf_bytes = generar_pdf(datos, articulos, campos_pago)
- 
         response = make_response(pdf_bytes)
         response.headers.set('Content-Type', 'application/pdf')
         response.headers.set('Content-Disposition', f'attachment; filename=orden_servicio_{pedido_id}.pdf')

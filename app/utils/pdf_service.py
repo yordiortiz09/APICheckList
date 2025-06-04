@@ -1,24 +1,38 @@
 from fpdf import FPDF
 from datetime import datetime
 from io import BytesIO
+from datetime import datetime
+import locale
+
+
 
 
 class PDF(FPDF):
+
+    def __init__(self, orden_servicio="", folio_fisico="", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.orden_servicio = orden_servicio
+        self.folio_fisico = folio_fisico
+        self.unifontsubset = False 
+
     def header(self):
         self.set_font("Arial", "B", 10)
+
+        self.image("app/src/HuellitasLogo.jpg", x=10, y=8, w=50)
+
         self.set_xy(160, 10)
         self.set_fill_color(200, 200, 200)
         self.cell(40, 6, "ORDEN DE SERVICIO", border=1, ln=2, align="C", fill=True)
 
         self.set_text_color(255, 0, 0)
-        self.cell(40, 6, "0000001135", border=1, ln=2, align="C")
+        self.cell(40, 6, self.orden_servicio, border=1, ln=2, align="C")
         self.set_text_color(0, 0, 0)
 
         self.set_fill_color(200, 200, 200)
         self.cell(40, 6, "FOLIO FISICO", border=1, ln=2, align="C", fill=True)
 
         self.set_text_color(255, 0, 0)
-        self.cell(40, 6, "41646", border=1, ln=2, align="C")
+        self.cell(40, 6, self.folio_fisico, border=1, ln=2, align="C")
         self.set_text_color(0, 0, 0)
 
         self.set_font("Arial", "", 9)
@@ -26,7 +40,6 @@ class PDF(FPDF):
         self.cell(40, 6, f"Hora: {datetime.now().strftime('%I:%M:%S %p')}", ln=2, align="R")
         self.cell(40, 6, "Sucursal: Torreón", ln=2, align="R")
         self.ln(5)
-
     def add_labeled_line(self, label, value="", line_height=7):
         self.set_font("Arial", "B", 9)
         self.cell(55, line_height, label, 1)
@@ -50,8 +63,9 @@ class PDF(FPDF):
         self.cell(0, 6, "SEBASTIAN JARDON AVILA", ln=True, align="C")
         self.cell(0, 6, "RECOLECTOR", ln=True, align="C")
 
-def generar_pdf(datos: dict, articulos: list, campos: dict):
-    pdf = PDF()
+def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, referencia_pedido: str) -> bytes:
+    pdf = PDF(orden_servicio=clave_pedido, folio_fisico=referencia_pedido
+              )
     pdf.add_page()
 
     pdf.add_labeled_line("NOMBRE DE LA MASCOTA:", datos.get("NOMBRE DE LA MASCOTA", ""))
@@ -163,16 +177,36 @@ def generar_pdf(datos: dict, articulos: list, campos: dict):
     pdf.cell(45, 6, "OTROS (ESPECIFIQUE):", ln=0)
     pdf.set_font("Arial", "", 9)
     pdf.cell(0, 6, otros, border="B", ln=1)
+    try:
+        locale.setlocale(locale.LC_TIME, "es_MX.UTF-8")
+    except:
+        try:
+            locale.setlocale(locale.LC_TIME, "es_ES.UTF-8")
+        except:
+            locale.setlocale(locale.LC_TIME, "")  
+    
+    meses_es = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+   ]
+
+    now = datetime.now()
+    dia = f"{now.day:02d}"
+    
+    mes = meses_es[now.month - 1]
+    año = now.year
+    fecha_actual = f"el día {dia} de {mes} de {año}"
 
     pdf.ln(4)
     pdf.set_font("Arial", "", 8)
     pagare_text = (
-        "DEBO Y PAGARÉ incondicionalmente a la orden de YAZMIN ADRIANA HERNÁNDEZ MORENO en Torreón, Coah., "
-        "ó donde exija el tenedor, el día _______ de ____________ de 20___, la cantidad de $ _____________ valor recibido a mi entera "
-        "satisfacción. Si no fuera cubierta a su vencimiento la suma que este pagaré expresa, cubriré además el ______ % de interés "
-        "mensual desde la fecha de su vencimiento hasta que sea totalmente cubierta, me someto a los tribunales que el tenedor "
-        "señale y renuncio al fuero de mi domicilio."
-    )
+    f"DEBO Y PAGARÉ incondicionalmente a la orden de YAZMIN ADRIANA HERNÁNDEZ MORENO en Torreón, Coah., "
+    f"ó donde exija el tenedor, {fecha_actual}, la cantidad de $ _____________ valor recibido a mi entera "
+    "satisfacción. Si no fuera cubierta a su vencimiento la suma que este pagaré expresa, cubriré además el ______ % de interés "
+    "mensual desde la fecha de su vencimiento hasta que sea totalmente cubierta, me someto a los tribunales que el tenedor "
+    "señale y renuncio al fuero de mi domicilio."
+)
+
     pdf.multi_cell(0, 4.5, pagare_text, border=1, align="J")
 
     pdf.ln(2)
