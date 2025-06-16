@@ -127,5 +127,49 @@ def get_users():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
 
+@usuarios_bp.route('/get_pedidos', methods=['POST'])
+def get_pedidos():
+    try:
+        data = request.json
+        sc_clave = data.get('sc_clave')
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+        fecha_inicio = data.get('fecha_inicio')
+        fecha_fin = data.get('fecha_fin')
 
+        if not all([sc_clave, dsn, user, password, fecha_inicio, fecha_fin]):
+            return jsonify({'error': 'Faltan parámetros: sc_clave, dsn, user, password, fecha_inicio, fecha_fin'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT CLAVE, FECHA, TOTAL, ESTADO, CANCELADO
+            FROM PEDIDOS
+            WHERE SCP_CLAVEVENDEDOR = ?
+            AND FECHA BETWEEN ? AND ?
+            ORDER BY FECHA DESC
+        """, (sc_clave, fecha_inicio, fecha_fin))
+        
+        rows = cur.fetchall()
+        
+        pedidos = [
+            {
+                'clave': row[0],
+                'fecha': str(row[1]),
+                'total': float(row[2]),
+                'estado': row[3],
+                'cancelado': row[4]
+            } for row in rows
+        ]
+        
+        conn.close()
+        return jsonify({'pedidos': pedidos}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
