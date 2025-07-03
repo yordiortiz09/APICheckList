@@ -46,7 +46,7 @@ def generar_orden_servicio(pedido_id):
         hora_pedido = pedido_info[3]
         sucursal = pedido_info[4] or "No especificada"
 
-        # 📌 Obtener el nombre del recolector
+        
         recolector_nombre = "NO IDENTIFICADO"
         cur.execute(f"SELECT grupo_resp FROM pedidos WHERE clave = {pedido_id}")
         grupo_resp_row = cur.fetchone()
@@ -105,7 +105,6 @@ def generar_orden_servicio(pedido_id):
         """)
         articulos = [{"nombre": row[2], "importe": row[3]} for row in cur.fetchall()]
 
-        # 📌 Datos de pago
         campos_pago = {
             "tipo_pago": obtener_campo(4),
             "monto": obtener_campo(1),

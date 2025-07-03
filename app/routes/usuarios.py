@@ -1,5 +1,9 @@
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import connect_to_firebird
+from app.utils.queries_pedidos import CAMPOS_PEDIDO
+import traceback
+
+
 
 usuarios_bp = Blueprint('usuarios', __name__)
 
@@ -149,27 +153,289 @@ def get_pedidos():
 
         cur = conn.cursor()
         cur.execute("""
-            SELECT CLAVE, FECHA, TOTAL, ESTADO, CANCELADO
-            FROM PEDIDOS
-            WHERE SCP_CLAVEVENDEDOR = ?
-            AND FECHA BETWEEN ? AND ?
-            ORDER BY FECHA DESC
-        """, (sc_clave, fecha_inicio, fecha_fin))
+            SELECT 
+          P.CLAVE, 
+          P.FECHA, 
+          P.TOTAL, 
+          P.ESTADO, 
+          P.CANCELADO,
+          (
+            SELECT PC.PC_VALOR
+            FROM PEDIDOSCAMPOS PC
+            WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 13
+            FETCH FIRST 1 ROWS ONLY
+          ) AS MASCOTA,
+          (
+            SELECT PC.PC_VALOR
+            FROM PEDIDOSCAMPOS PC
+            WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 22
+            FETCH FIRST 1 ROWS ONLY
+          ) AS LUGAR_RECOLECCION,
+          (
+            SELECT COUNT(*)
+            FROM PEDIDOSARTIC A
+            WHERE A.CLVVENTA = P.CLAVE
+          ) AS NUM_PRODUCTOS
+        FROM PEDIDOS P
+        WHERE P.SCP_CLAVEVENDEDOR = ?
+          AND P.FECHA BETWEEN ? AND ?
+        ORDER BY P.FECHA DESC
         
+              """, (sc_clave, fecha_inicio, fecha_fin))
+        
+                
         rows = cur.fetchall()
-        
+                
         pedidos = [
             {
                 'clave': row[0],
                 'fecha': str(row[1]),
                 'total': float(row[2]),
                 'estado': row[3],
-                'cancelado': row[4]
+                'cancelado': row[4],
+                'mascota': row[5] or 'Sin nombre',
+                'lugar_recoleccion': row[6] or 'No especificado',
+                'num_productos': row[7]
             } for row in rows
         ]
+
         
         conn.close()
         return jsonify({'pedidos': pedidos}), 200
 
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@usuarios_bp.route('/get_pedido_detalle/<clave_pedido>', methods=['POST'])
+def get_pedido_detalle(clave_pedido):
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT p.referencia, p.fecha, p.hora, e.descripcion as sucursal, p.scc_clave
+            FROM pedidos p
+            LEFT JOIN entidades e ON p.clvent = e.clave
+            WHERE p.clave = ?
+        """, (clave_pedido,))
+
+        pedido_info = cur.fetchone()
+        print(f"Información del pedido: {pedido_info}")
+        if not pedido_info:
+            return jsonify({'error': 'Pedido no encontrado'}), 404
+
+        referencia, fecha_pedido, hora_pedido, sucursal, cliente_clave = pedido_info
+
+        fecha_pedido = str(fecha_pedido) if fecha_pedido else ""
+        hora_pedido = str(hora_pedido) if hora_pedido else ""
+
+        def obtener_campo(clavecampo):
+            cur.execute(f"""
+                SELECT pc_valor FROM pedidoscampos
+                WHERE pc_claveventa = {clave_pedido}
+                AND cc_clavecampo = {clavecampo}
+            """)
+            resultado = cur.fetchone()
+            return resultado[0] if resultado else ""
+
+        campos = {
+            "nombre_mascota": obtener_campo(13),
+            "veterinario": obtener_campo(14),
+            "raza": obtener_campo(15),
+            "peso": obtener_campo(16),
+            "edad": obtener_campo(17),
+            "causa": obtener_campo(18),
+            "contratante": obtener_campo(19),
+            "domicilio": obtener_campo(22),
+            "telefono": obtener_campo(23),
+            "difusion": obtener_campo(20),
+            "lugar": obtener_campo(21),
+            "forma_pago": obtener_campo(25),
+            "tipo_pago": obtener_campo(4),
+            "monto": obtener_campo(1),
+            "otros": obtener_campo(26),
+        }
+
+        cur.execute("""
+                SELECT 
+                    pedidosartic.clave,
+                    pedidosartic.clvarticulo,
+                    articuloventa.nombre,
+                    articuloventa.unidad,
+                    COALESCE(pedidosartic.cantidadalter, 0) AS cantidad,
+                    COALESCE(pedidosartic.precioalter, 0) AS precio_sin_iva,
+                    ROUND(COALESCE(pedidosartic.cantidadalter, 0) * COALESCE(pedidosartic.precioalter, 0) * 1.16, 2) AS importe_con_iva,
+                    ROUND(COALESCE(pedidosartic.precioalter, 0) * 1.16, 2) AS precio_con_iva
+                FROM pedidosartic
+                LEFT JOIN articuloventa ON pedidosartic.clvarticulo = articuloventa.clave
+                WHERE pedidosartic.clvventa = ?
+            """, (clave_pedido,))
+            
+        articulos_raw = cur.fetchall()
+            
+        articulos = [
+                {
+                    'clave': row[1] or '',
+                    'claveArticulo': row[1] or '',
+                    'nombre': row[2] or 'Sin nombre',
+                    'unidad': row[3] or '',
+                    'cantidad': float(row[4]) if row[4] is not None else 0,
+                    'precio_unitario': float(row[7]) if row[7] is not None else 0,  
+                    'importe': float(row[6]) if row[6] is not None else 0,         
+                }
+                for row in articulos_raw
+            ]
+
+        
+        print(f"Artículos del pedido: {articulos}")
+
+
+        conn.close()
+
+        return jsonify({
+            'referencia': referencia,
+            'fecha_pedido': fecha_pedido,
+            'hora_pedido': hora_pedido,
+            'sucursal': sucursal,
+            'cliente_clave': cliente_clave,
+            'campos': campos,
+            'articulos': articulos
+        }), 200
+
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+@usuarios_bp.route('/actualizar_pedido/<clave_pedido>', methods=['POST'])
+def actualizar_pedido(clave_pedido):
+    try:
+        print(f"Clave pedido recibida (tipo {type(clave_pedido)}): {clave_pedido}")
+        data = request.json
+        print(f"Datos recibidos: {data}")
+
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+        cambios = data.get('campos')
+        articulos = data.get('articulos', [])
+
+        print(f"DSN: {dsn}, User: {user}, Password: {'***' if password else None}")
+        print(f"Campos personalizados: {cambios}")
+        print(f"Artículos para actualizar: {articulos}")
+
+        if not all([dsn, user, password, cambios]) or articulos is None:
+            print("Faltan parámetros esenciales")
+            return jsonify({'error': 'Faltan parámetros'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            print("No se pudo conectar a la base de datos")
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+
+        CAMPOS_PEDIDO = {
+            "nombre_mascota": 13,
+            "veterinario": 14,
+            "raza": 15,
+            "peso": 16,
+            "edad": 17,
+            "causa": 18,
+            "contratante": 19,
+            "difusion": 20,
+            "lugar": 21,
+            "domicilio": 22,
+            "telefono": 23,
+            "tipo_pago": 4,
+            "forma_pago": 25,
+            "monto": 1,
+            "otros": 26,
+        }
+
+        for campo_nombre, valor in cambios.items():
+            campo_id = CAMPOS_PEDIDO.get(campo_nombre)
+            if campo_id is None:
+                print(f"[WARN] Campo '{campo_nombre}' no encontrado.")
+                continue
+
+            cur.execute("""
+                SELECT COUNT(*) FROM PEDIDOSCAMPOS WHERE PC_CLAVEVENTA = ? AND CC_CLAVECAMPO = ?
+            """, (clave_pedido, campo_id))
+            existe = cur.fetchone()[0]
+
+            if existe:
+                cur.execute("""
+                    UPDATE PEDIDOSCAMPOS SET PC_VALOR = ?
+                    WHERE PC_CLAVEVENTA = ? AND CC_CLAVECAMPO = ?
+                """, (valor, clave_pedido, campo_id))
+            else:
+                cur.execute("""
+                    INSERT INTO PEDIDOSCAMPOS (PC_CLAVEVENTA, CC_CLAVECAMPO, PC_VALOR)
+                    VALUES (?, ?, ?)
+                """, (clave_pedido, campo_id, valor))
+
+        if 'referencia' in data:
+            cur.execute("UPDATE PEDIDOS SET referencia = ? WHERE clave = ?", (data['referencia'], clave_pedido))
+        if 'fecha_pedido' in data:
+            cur.execute("UPDATE PEDIDOS SET fecha = ? WHERE clave = ?", (data['fecha_pedido'], clave_pedido))
+        if 'hora_pedido' in data:
+            cur.execute("UPDATE PEDIDOS SET hora = ? WHERE clave = ?", (data['hora_pedido'], clave_pedido))
+        if 'cliente' in data:
+            cur.execute("UPDATE PEDIDOS SET scc_clave = ? WHERE clave = ?", (data['cliente'], clave_pedido))
+
+        cur.execute("DELETE FROM PEDIDOSARTIC WHERE CLVVENTA = ?", (clave_pedido,))
+
+        import uuid
+        for art in articulos:
+            clave_articulo = art.get("claveArticulo") or art.get("clave_articulo") or art.get("clave")  # Según como venga
+            cantidad = float(art.get("cantidad", 0))
+            unidad_alter = art.get("unidad") or art.get("unidadAlter") or ""
+            cantidad_alter = float(art.get("cantidadAlter", cantidad))
+            precio_unitario = float(art.get("precio_unitario") or art.get("precio") or 0)  # Sin IVA
+            precio_alter = float(art.get("precioAlter", precio_unitario))
+            iva = round(cantidad * precio_unitario * 0.16, 4)
+            total = round((cantidad * precio_unitario) + iva, 4)
+
+            articulo_clave_unico = str(uuid.uuid4())[:20]
+
+            cur.execute("""
+                INSERT INTO PEDIDOSARTIC (
+                    CLAVE, CLVVENTA, CLVARTICULO, CANT, CANTIDADALTER, UNIDADALTER,
+                    PRECIO, PRECIOALTER, IVA, PORIVA, TOTAL
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                articulo_clave_unico,
+                clave_pedido,
+                clave_articulo,
+                cantidad,
+                cantidad_alter,
+                unidad_alter,
+                precio_unitario,
+                precio_alter,
+                iva,
+                16,
+                total
+            ))
+
+        conn.commit()
+        conn.close()
+
+        print("✅ Pedido actualizado correctamente")
+        return jsonify({'mensaje': 'Pedido actualizado correctamente'}), 200
+
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
