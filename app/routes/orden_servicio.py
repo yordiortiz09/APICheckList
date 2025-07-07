@@ -46,12 +46,14 @@ def generar_orden_servicio(pedido_id):
         hora_pedido = pedido_info[3]
         sucursal = pedido_info[4] or "No especificada"
 
-        
         recolector_nombre = "NO IDENTIFICADO"
+        grupo_resp = None  
+
         cur.execute(f"SELECT grupo_resp FROM pedidos WHERE clave = {pedido_id}")
         grupo_resp_row = cur.fetchone()
         if grupo_resp_row and grupo_resp_row[0]:
             grupo_resp = grupo_resp_row[0]
+
             cur.execute(f"""
                 SELECT FIRST 1 sc_clave 
                 FROM respuestas 
@@ -91,9 +93,20 @@ def generar_orden_servicio(pedido_id):
             "TELEFONO(S)": obtener_campo(23),
             "¿CÓMO SUPO DE NOSOTROS?": obtener_campo(20),
             "LUGAR DE RECOLECCION": obtener_campo(21),
-            "ESPECIFICACIONES": "",
+            "ESPECIFICACIONES": "",  
             "FAMILIA": obtener_campo(19),
         }
+
+        if grupo_resp:
+            cur.execute(f"""
+                SELECT UPPER(TEXTO_RESPUESTA)
+                FROM RESPUESTAS
+                WHERE RESPUESTA_GRUPO_ID = {grupo_resp}
+                AND PREGUNTA_ID = 23
+            """)
+            espec_row = cur.fetchone()
+            if espec_row and espec_row[0]:
+                datos["ESPECIFICACIONES"] = espec_row[0]
 
         cur.execute(f"""
             SELECT pedidosartic.clave, pedidosartic.clvarticulo, articuloventa.nombre,
@@ -112,12 +125,12 @@ def generar_orden_servicio(pedido_id):
             "otros": obtener_campo(26),
         }
 
-        # 📦 Generar PDF
+        
         pdf_bytes = generar_pdf(
             datos, articulos, campos_pago,
             clave_pedido, referencia_pedido,
             fecha_pedido, hora_pedido,
-            sucursal, recolector_nombre  
+            sucursal, recolector_nombre
         )
 
         response = make_response(pdf_bytes)

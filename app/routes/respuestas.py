@@ -60,7 +60,6 @@ def guardar_respuestas():
                 respuesta_grupo_id 
             ))
 
-        # Ejecutar procedimiento de generación de pedido
         cur.execute("SELECT COUNT(*) FROM rdb$procedures WHERE rdb$procedure_name = 'PROC_GENERA_PEDIDO'")
         existe_proc = cur.fetchone()[0]
 
