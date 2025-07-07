@@ -223,15 +223,15 @@ def get_pedido_detalle(clave_pedido):
 
         cur = conn.cursor()
 
+        # Datos generales del pedido
         cur.execute("""
             SELECT p.referencia, p.fecha, p.hora, e.descripcion as sucursal, p.scc_clave
             FROM pedidos p
             LEFT JOIN entidades e ON p.clvent = e.clave
             WHERE p.clave = ?
         """, (clave_pedido,))
-
         pedido_info = cur.fetchone()
-        print(f"Información del pedido: {pedido_info}")
+
         if not pedido_info:
             return jsonify({'error': 'Pedido no encontrado'}), 404
 
@@ -268,38 +268,48 @@ def get_pedido_detalle(clave_pedido):
         }
 
         cur.execute("""
-                SELECT 
-                    pedidosartic.clave,
-                    pedidosartic.clvarticulo,
-                    articuloventa.nombre,
-                    articuloventa.unidad,
-                    COALESCE(pedidosartic.cantidadalter, 0) AS cantidad,
-                    COALESCE(pedidosartic.precioalter, 0) AS precio_sin_iva,
-                    ROUND(COALESCE(pedidosartic.cantidadalter, 0) * COALESCE(pedidosartic.precioalter, 0) * 1.16, 2) AS importe_con_iva,
-                    ROUND(COALESCE(pedidosartic.precioalter, 0) * 1.16, 2) AS precio_con_iva
-                FROM pedidosartic
-                LEFT JOIN articuloventa ON pedidosartic.clvarticulo = articuloventa.clave
-                WHERE pedidosartic.clvventa = ?
-            """, (clave_pedido,))
-            
-        articulos_raw = cur.fetchall()
-            
-        articulos = [
-                {
-                    'clave': row[1] or '',
-                    'claveArticulo': row[1] or '',
-                    'nombre': row[2] or 'Sin nombre',
-                    'unidad': row[3] or '',
-                    'cantidad': float(row[4]) if row[4] is not None else 0,
-                    'precio_unitario': float(row[7]) if row[7] is not None else 0,  
-                    'importe': float(row[6]) if row[6] is not None else 0,         
-                }
-                for row in articulos_raw
-            ]
-
+            SELECT 
+                pedidosartic.clave,
+                pedidosartic.clvarticulo,
+                articuloventa.nombre,
+                articuloventa.unidad,
+                COALESCE(pedidosartic.cantidadalter, 0) AS cantidad,
+                COALESCE(pedidosartic.precioalter, 0) AS precio_sin_iva,
+                ROUND(COALESCE(pedidosartic.cantidadalter, 0) * COALESCE(pedidosartic.precioalter, 0) * 1.16, 2) AS importe_con_iva,
+                ROUND(COALESCE(pedidosartic.precioalter, 0) * 1.16, 2) AS precio_con_iva
+            FROM pedidosartic
+            LEFT JOIN articuloventa ON pedidosartic.clvarticulo = articuloventa.clave
+            WHERE pedidosartic.clvventa = ?
+        """, (clave_pedido,))
         
-        print(f"Artículos del pedido: {articulos}")
+        articulos_raw = cur.fetchall()
+        articulos = [
+            {
+                'clave': row[1] or '',
+                'claveArticulo': row[1] or '',
+                'nombre': row[2] or 'Sin nombre',
+                'unidad': row[3] or '',
+                'cantidad': float(row[4]) if row[4] is not None else 0,
+                'precio_unitario': float(row[7]) if row[7] is not None else 0,
+                'importe': float(row[6]) if row[6] is not None else 0,
+            }
+            for row in articulos_raw
+        ]
 
+        cur.execute("SELECT grupo_resp FROM PEDIDOS WHERE clave = ?", (clave_pedido,))
+        grupo_row = cur.fetchone()
+        grupo_resp = grupo_row[0] if grupo_row and grupo_row[0] else None
+
+        especificaciones = ""
+        if grupo_resp:
+            cur.execute("""
+                SELECT TEXTO_RESPUESTA 
+                FROM RESPUESTAS 
+                WHERE RESPUESTA_GRUPO_ID = ? AND PREGUNTA_ID = 23
+            """, (grupo_resp,))
+            espec_row = cur.fetchone()
+            if espec_row and espec_row[0]:
+                especificaciones = espec_row[0]
 
         conn.close()
 
@@ -310,9 +320,9 @@ def get_pedido_detalle(clave_pedido):
             'sucursal': sucursal,
             'cliente_clave': cliente_clave,
             'campos': campos,
-            'articulos': articulos
+            'articulos': articulos,
+            'especificaciones': especificaciones  
         }), 200
-
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -331,9 +341,11 @@ def actualizar_pedido(clave_pedido):
         password = data.get('password')
         cambios = data.get('campos')
         articulos = data.get('articulos', [])
+        especificaciones = data.get('especificaciones', '')
 
         print(f"DSN: {dsn}, User: {user}, Password: {'***' if password else None}")
         print(f"Campos personalizados: {cambios}")
+        print(f"Especificaciones: {especificaciones}")
         print(f"Artículos para actualizar: {articulos}")
 
         if not all([dsn, user, password, cambios]) or articulos is None:
@@ -387,6 +399,32 @@ def actualizar_pedido(clave_pedido):
                     VALUES (?, ?, ?)
                 """, (clave_pedido, campo_id, valor))
 
+        if especificaciones:
+            cur.execute("SELECT grupo_resp FROM PEDIDOS WHERE clave = ?", (clave_pedido,))
+            grupo_row = cur.fetchone()
+            if grupo_row and grupo_row[0]:
+                grupo_resp_id = grupo_row[0]
+                pregunta_id = 23
+
+                cur.execute("""
+                    SELECT COUNT(*) FROM RESPUESTAS
+                    WHERE RESPUESTA_GRUPO_ID = ? AND PREGUNTA_ID = ?
+                """, (grupo_resp_id, pregunta_id))
+                existe = cur.fetchone()[0]
+
+                if existe:
+                    cur.execute("""
+                        UPDATE RESPUESTAS
+                        SET TEXTO_RESPUESTA = ?
+                        WHERE RESPUESTA_GRUPO_ID = ? AND PREGUNTA_ID = ?
+                    """, (especificaciones, grupo_resp_id, pregunta_id))
+                else:
+                    cur.execute("""
+                        INSERT INTO RESPUESTAS (RESPUESTA_GRUPO_ID, PREGUNTA_ID, TEXTO_RESPUESTA)
+                        VALUES (?, ?, ?)
+                    """, (grupo_resp_id, pregunta_id, especificaciones))
+
+        # Actualizaciones en PEDIDOS
         if 'referencia' in data:
             cur.execute("UPDATE PEDIDOS SET referencia = ? WHERE clave = ?", (data['referencia'], clave_pedido))
         if 'fecha_pedido' in data:
@@ -400,11 +438,11 @@ def actualizar_pedido(clave_pedido):
 
         import uuid
         for art in articulos:
-            clave_articulo = art.get("claveArticulo") or art.get("clave_articulo") or art.get("clave")  # Según como venga
+            clave_articulo = art.get("claveArticulo") or art.get("clave_articulo") or art.get("clave")
             cantidad = float(art.get("cantidad", 0))
             unidad_alter = art.get("unidad") or art.get("unidadAlter") or ""
             cantidad_alter = float(art.get("cantidadAlter", cantidad))
-            precio_unitario = float(art.get("precio_unitario") or art.get("precio") or 0)  # Sin IVA
+            precio_unitario = float(art.get("precio_unitario") or art.get("precio") or 0)
             precio_alter = float(art.get("precioAlter", precio_unitario))
             iva = round(cantidad * precio_unitario * 0.16, 4)
             total = round((cantidad * precio_unitario) + iva, 4)
