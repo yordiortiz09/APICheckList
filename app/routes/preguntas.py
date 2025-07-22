@@ -156,3 +156,4 @@ def eliminar_pregunta(pregunta_id):
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    

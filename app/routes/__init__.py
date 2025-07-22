@@ -7,7 +7,7 @@ from app.routes.orden_servicio import bp_orden
 from app.routes.conexion import conexion_bp
 from app.routes.usuarios import usuarios_bp
 from app.routes.respuestas import respuestas_bp
-
+from app.routes.descuentos import descuentos_bp
 def register_routes(app):
     app.register_blueprint(articulos_bp)
     app.register_blueprint(clientes_bp)
@@ -18,3 +18,4 @@ def register_routes(app):
     app.register_blueprint(conexion_bp)
     app.register_blueprint(usuarios_bp)
     app.register_blueprint(respuestas_bp)
+    app.register_blueprint(descuentos_bp)

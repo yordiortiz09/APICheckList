@@ -223,9 +223,8 @@ def get_pedido_detalle(clave_pedido):
 
         cur = conn.cursor()
 
-        # Datos generales del pedido
         cur.execute("""
-            SELECT p.referencia, p.fecha, p.hora, e.descripcion as sucursal, p.scc_clave
+            SELECT p.referencia, p.fecha, p.hora, e.descripcion as sucursal, p.scc_clave, p."COMMENT"
             FROM pedidos p
             LEFT JOIN entidades e ON p.clvent = e.clave
             WHERE p.clave = ?
@@ -235,17 +234,30 @@ def get_pedido_detalle(clave_pedido):
         if not pedido_info:
             return jsonify({'error': 'Pedido no encontrado'}), 404
 
-        referencia, fecha_pedido, hora_pedido, sucursal, cliente_clave = pedido_info
+        referencia, fecha_pedido, hora_pedido, sucursal, cliente_clave, comentario_blob = pedido_info
 
         fecha_pedido = str(fecha_pedido) if fecha_pedido else ""
         hora_pedido = str(hora_pedido) if hora_pedido else ""
 
+        if comentario_blob:
+            try:
+                especificaciones = comentario_blob.read()
+                if isinstance(especificaciones, bytes):
+                    especificaciones = especificaciones.decode('utf-8')
+            except AttributeError:
+                if isinstance(comentario_blob, bytes):
+                    especificaciones = comentario_blob.decode('utf-8')
+                else:
+                    especificaciones = str(comentario_blob)
+        else:
+            especificaciones = ""
+
         def obtener_campo(clavecampo):
-            cur.execute(f"""
+            cur.execute("""
                 SELECT pc_valor FROM pedidoscampos
-                WHERE pc_claveventa = {clave_pedido}
-                AND cc_clavecampo = {clavecampo}
-            """)
+                WHERE pc_claveventa = ?
+                AND cc_clavecampo = ?
+            """, (clave_pedido, clavecampo))
             resultado = cur.fetchone()
             return resultado[0] if resultado else ""
 
@@ -265,7 +277,10 @@ def get_pedido_detalle(clave_pedido):
             "tipo_pago": obtener_campo(4),
             "monto": obtener_campo(1),
             "otros": obtener_campo(26),
+            "fecha_liquidacion": obtener_campo(24),
         }
+
+        print(f"Campos obtenidos: {campos}")
 
         cur.execute("""
             SELECT 
@@ -281,7 +296,7 @@ def get_pedido_detalle(clave_pedido):
             LEFT JOIN articuloventa ON pedidosartic.clvarticulo = articuloventa.clave
             WHERE pedidosartic.clvventa = ?
         """, (clave_pedido,))
-        
+
         articulos_raw = cur.fetchall()
         articulos = [
             {
@@ -296,20 +311,22 @@ def get_pedido_detalle(clave_pedido):
             for row in articulos_raw
         ]
 
-        cur.execute("SELECT grupo_resp FROM PEDIDOS WHERE clave = ?", (clave_pedido,))
-        grupo_row = cur.fetchone()
-        grupo_resp = grupo_row[0] if grupo_row and grupo_row[0] else None
+        cur.execute("""
+            SELECT p.id_descuento, c.descripcion, p.monto
+            FROM pedidos_descuentos p
+            JOIN cat_descuento_pedido c ON p.id_descuento = c.id_descuento
+            WHERE p.id_pedido = ?
+        """, (clave_pedido,))
 
-        especificaciones = ""
-        if grupo_resp:
-            cur.execute("""
-                SELECT TEXTO_RESPUESTA 
-                FROM RESPUESTAS 
-                WHERE RESPUESTA_GRUPO_ID = ? AND PREGUNTA_ID = 23
-            """, (grupo_resp,))
-            espec_row = cur.fetchone()
-            if espec_row and espec_row[0]:
-                especificaciones = espec_row[0]
+        descuentos_raw = cur.fetchall()
+        descuentos = [
+            {
+                'id_descuento': row[0],
+                'descripcion': row[1],
+                'monto': float(row[2]) if row[2] is not None else 0
+            }
+            for row in descuentos_raw
+        ]
 
         conn.close()
 
@@ -321,12 +338,12 @@ def get_pedido_detalle(clave_pedido):
             'cliente_clave': cliente_clave,
             'campos': campos,
             'articulos': articulos,
-            'especificaciones': especificaciones  
+            'especificaciones': especificaciones,
+            'descuentos': descuentos   
         }), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 
 @usuarios_bp.route('/actualizar_pedido/<clave_pedido>', methods=['POST'])
@@ -341,24 +358,19 @@ def actualizar_pedido(clave_pedido):
         password = data.get('password')
         cambios = data.get('campos')
         articulos = data.get('articulos', [])
+        descuentos = data.get('descuentos', [])
         especificaciones = data.get('especificaciones', '')
 
-        print(f"DSN: {dsn}, User: {user}, Password: {'***' if password else None}")
-        print(f"Campos personalizados: {cambios}")
-        print(f"Especificaciones: {especificaciones}")
-        print(f"Artículos para actualizar: {articulos}")
-
-        if not all([dsn, user, password, cambios]) or articulos is None:
-            print("Faltan parámetros esenciales")
+        if not all([dsn, user, password, cambios]):
             return jsonify({'error': 'Faltan parámetros'}), 400
 
         conn = connect_to_firebird(dsn, user, password)
         if not conn:
-            print("No se pudo conectar a la base de datos")
             return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
 
         cur = conn.cursor()
 
+        # Mapeo de campos personalizados
         CAMPOS_PEDIDO = {
             "nombre_mascota": 13,
             "veterinario": 14,
@@ -375,6 +387,7 @@ def actualizar_pedido(clave_pedido):
             "forma_pago": 25,
             "monto": 1,
             "otros": 26,
+            "fecha_liquidacion": 24,
         }
 
         for campo_nombre, valor in cambios.items():
@@ -382,49 +395,49 @@ def actualizar_pedido(clave_pedido):
             if campo_id is None:
                 print(f"[WARN] Campo '{campo_nombre}' no encontrado.")
                 continue
-
+        
+            if valor == "" or valor is None:
+                print(f"[INFO] Campo '{campo_nombre}' viene vacío, se omite.")
+                continue
+        
             cur.execute("""
                 SELECT COUNT(*) FROM PEDIDOSCAMPOS WHERE PC_CLAVEVENTA = ? AND CC_CLAVECAMPO = ?
             """, (clave_pedido, campo_id))
             existe = cur.fetchone()[0]
-
+        
             if existe:
-                cur.execute("""
-                    UPDATE PEDIDOSCAMPOS SET PC_VALOR = ?
-                    WHERE PC_CLAVEVENTA = ? AND CC_CLAVECAMPO = ?
-                """, (valor, clave_pedido, campo_id))
-            else:
-                cur.execute("""
-                    INSERT INTO PEDIDOSCAMPOS (PC_CLAVEVENTA, CC_CLAVECAMPO, PC_VALOR)
-                    VALUES (?, ?, ?)
-                """, (clave_pedido, campo_id, valor))
-
-        if especificaciones:
-            cur.execute("SELECT grupo_resp FROM PEDIDOS WHERE clave = ?", (clave_pedido,))
-            grupo_row = cur.fetchone()
-            if grupo_row and grupo_row[0]:
-                grupo_resp_id = grupo_row[0]
-                pregunta_id = 23
-
-                cur.execute("""
-                    SELECT COUNT(*) FROM RESPUESTAS
-                    WHERE RESPUESTA_GRUPO_ID = ? AND PREGUNTA_ID = ?
-                """, (grupo_resp_id, pregunta_id))
-                existe = cur.fetchone()[0]
-
-                if existe:
+                if campo_nombre == "fecha_liquidacion":
                     cur.execute("""
-                        UPDATE RESPUESTAS
-                        SET TEXTO_RESPUESTA = ?
-                        WHERE RESPUESTA_GRUPO_ID = ? AND PREGUNTA_ID = ?
-                    """, (especificaciones, grupo_resp_id, pregunta_id))
+                        UPDATE PEDIDOSCAMPOS
+                        SET PC_VALOR = ?, IPA_CONSECUTIVO = 28
+                        WHERE PC_CLAVEVENTA = ? AND CC_CLAVECAMPO = ?
+                    """, (valor, clave_pedido, campo_id))
                 else:
                     cur.execute("""
-                        INSERT INTO RESPUESTAS (RESPUESTA_GRUPO_ID, PREGUNTA_ID, TEXTO_RESPUESTA)
-                        VALUES (?, ?, ?)
-                    """, (grupo_resp_id, pregunta_id, especificaciones))
+                        UPDATE PEDIDOSCAMPOS
+                        SET PC_VALOR = ?
+                        WHERE PC_CLAVEVENTA = ? AND CC_CLAVECAMPO = ?
+                    """, (valor, clave_pedido, campo_id))
+            else:
+                cur.execute("""
+                    SELECT COALESCE(MAX(PC_CONSECUTIVO), 0) + 1 FROM PEDIDOSCAMPOS
+                """)
+                nuevo_consec = cur.fetchone()[0]
+        
+                if campo_nombre == "fecha_liquidacion":
+                    cur.execute("""
+                        INSERT INTO PEDIDOSCAMPOS (PC_CONSECUTIVO, PC_CLAVEVENTA, CC_CLAVECAMPO, PC_VALOR, IPA_CONSECUTIVO)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (nuevo_consec, clave_pedido, campo_id, valor, 28))
+                else:
+                    cur.execute("""
+                        INSERT INTO PEDIDOSCAMPOS (PC_CONSECUTIVO, PC_CLAVEVENTA, CC_CLAVECAMPO, PC_VALOR)
+                        VALUES (?, ?, ?, ?)
+                    """, (nuevo_consec, clave_pedido, campo_id, valor))
 
-        # Actualizaciones en PEDIDOS
+
+        cur.execute("""UPDATE PEDIDOS SET "COMMENT" = ? WHERE clave = ?""", (especificaciones, clave_pedido))
+
         if 'referencia' in data:
             cur.execute("UPDATE PEDIDOS SET referencia = ? WHERE clave = ?", (data['referencia'], clave_pedido))
         if 'fecha_pedido' in data:
@@ -447,7 +460,7 @@ def actualizar_pedido(clave_pedido):
             iva = round(cantidad * precio_unitario * 0.16, 4)
             total = round((cantidad * precio_unitario) + iva, 4)
 
-            articulo_clave_unico = str(uuid.uuid4())[:20]
+            clave_unica = str(uuid.uuid4())[:20]
 
             cur.execute("""
                 INSERT INTO PEDIDOSARTIC (
@@ -455,7 +468,7 @@ def actualizar_pedido(clave_pedido):
                     PRECIO, PRECIOALTER, IVA, PORIVA, TOTAL
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                articulo_clave_unico,
+                clave_unica,
                 clave_pedido,
                 clave_articulo,
                 cantidad,
@@ -467,6 +480,18 @@ def actualizar_pedido(clave_pedido):
                 16,
                 total
             ))
+
+        cur.execute("DELETE FROM PEDIDOS_DESCUENTOS WHERE ID_PEDIDO = ?", (clave_pedido,))
+
+        for desc in descuentos:
+            id_descuento = int(desc.get("id_descuento"))
+            monto = float(desc.get("monto", 0))
+            id_unico = cur.execute("SELECT GEN_ID(GEN_PEDIDOS_DESCUENTOS_ID, 1) FROM RDB$DATABASE").fetchone()[0]
+
+            cur.execute("""
+                INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO)
+                VALUES (?, ?, ?, ?)
+            """, (id_unico, id_descuento, clave_pedido, monto))
 
         conn.commit()
         conn.close()

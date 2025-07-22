@@ -27,6 +27,7 @@ def generar_orden_servicio(pedido_id):
             return jsonify({"error": "No se pudo conectar a la base de datos"}), 500
 
         cur = conn.cursor()
+        pedido_id_str = str(pedido_id)
 
         cur.execute(f"""
             SELECT 
@@ -47,7 +48,8 @@ def generar_orden_servicio(pedido_id):
         sucursal = pedido_info[4] or "No especificada"
 
         recolector_nombre = "NO IDENTIFICADO"
-        grupo_resp = None  
+        grupo_resp = None
+        firma_bytes = None  
 
         cur.execute(f"SELECT grupo_resp FROM pedidos WHERE clave = {pedido_id}")
         grupo_resp_row = cur.fetchone()
@@ -72,6 +74,16 @@ def generar_orden_servicio(pedido_id):
                 if nombre_row:
                     recolector_nombre = nombre_row[0]
 
+            cur.execute(f"""
+                SELECT FIRST 1 FIRMA
+                FROM RESPUESTAS
+                WHERE RESPUESTA_GRUPO_ID = {grupo_resp}
+                AND FIRMA IS NOT NULL
+            """)
+            firma_row = cur.fetchone()
+            if firma_row and firma_row[0]:
+                firma_bytes = bytes(firma_row[0])  
+
         def obtener_campo(clavecampo):
             cur.execute(f"""
                 SELECT pc_valor FROM pedidoscampos
@@ -93,8 +105,9 @@ def generar_orden_servicio(pedido_id):
             "TELEFONO(S)": obtener_campo(23),
             "¿CÓMO SUPO DE NOSOTROS?": obtener_campo(20),
             "LUGAR DE RECOLECCION": obtener_campo(21),
-            "ESPECIFICACIONES": "",  
+            "ESPECIFICACIONES": "",
             "FAMILIA": obtener_campo(19),
+            "FECHA DE LIQUIDACIÓN": obtener_campo(24),
         }
 
         if grupo_resp:
@@ -118,6 +131,22 @@ def generar_orden_servicio(pedido_id):
         """)
         articulos = [{"nombre": row[2], "importe": row[3]} for row in cur.fetchall()]
 
+        cur.execute(f"""
+            SELECT COALESCE(SUM(monto), 0)
+            FROM pedidos_descuentos
+            WHERE id_pedido = {pedido_id}
+        """)
+        total_descuentos = cur.fetchone()[0] or 0.0
+
+        cur.execute("""
+             SELECT FIRST 1 c.DESCRIPCION
+             FROM pedidos_descuentos p
+             JOIN cat_descuento_pedido c ON p.id_descuento = c.id_descuento
+             WHERE CAST(p.id_pedido AS INTEGER) = ?
+         """, (pedido_id,))
+        row = cur.fetchone()
+        descripcion_descuento = row[0] if row else ""
+
         campos_pago = {
             "tipo_pago": obtener_campo(4),
             "monto": obtener_campo(1),
@@ -125,12 +154,13 @@ def generar_orden_servicio(pedido_id):
             "otros": obtener_campo(26),
         }
 
-        
         pdf_bytes = generar_pdf(
             datos, articulos, campos_pago,
             clave_pedido, referencia_pedido,
             fecha_pedido, hora_pedido,
-            sucursal, recolector_nombre
+            sucursal, recolector_nombre,
+            total_descuentos, descripcion_descuento,
+            firma_bytes  
         )
 
         response = make_response(pdf_bytes)

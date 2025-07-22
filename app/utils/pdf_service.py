@@ -5,12 +5,15 @@ from datetime import datetime, time
 import locale
 class PDF(FPDF):
 
-    def __init__(self, orden_servicio="", folio_fisico="", sucursal="", recolector="", *args, **kwargs):
+    def __init__(self, orden_servicio="", folio_fisico="", sucursal="", recolector="", total_descuento=0.0, descripcion_descuento="", firma_bytes=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orden_servicio = orden_servicio or ""
         self.folio_fisico = folio_fisico or ""
         self.sucursal = sucursal or ""
         self.recolector = recolector or ""
+        self.total_descuento = total_descuento
+        self.descripcion_descuento = descripcion_descuento
+        self.firma_bytes = firma_bytes
         self.unifontsubset = False
 
     def header(self):
@@ -82,8 +85,9 @@ class PDF(FPDF):
         self.cell(0, 6, "RECOLECTOR", ln=True, align="C")
 
 
-def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, referencia_pedido: str, fecha: str, hora: str, sucursal: str, recolector: str) -> bytes:
-    pdf = PDF(orden_servicio=clave_pedido, folio_fisico=referencia_pedido, sucursal=sucursal, recolector=recolector)
+def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, referencia_pedido: str,
+                fecha: str, hora: str, sucursal: str, recolector: str, total_descuentos: float, descripcion_descuento: str, firma_bytes=None) -> bytes:
+    pdf = PDF(orden_servicio=clave_pedido, folio_fisico=referencia_pedido, sucursal=sucursal, recolector=recolector, total_descuento=total_descuentos, descripcion_descuento=descripcion_descuento, firma_bytes=firma_bytes)
     pdf.fecha_pedido = fecha
     pdf.hora_pedido = hora
     pdf.sucursal = sucursal
@@ -97,31 +101,31 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
     pdf.set_font("Arial", "B", 9)
     pdf.cell(85, 7, "VETERINARIO QUE LA ATIENDE REGULARMENTE:", 1)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(105, 7, datos.get("VETERINARIO"), 1, ln=True)
+    pdf.cell(105, 7, datos.get("VETERINARIO") or "", 1, ln=True)
 
     pdf.set_font("Arial", "B", 9)
     pdf.cell(25, 7, "RAZA:", 1)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(60, 7, datos.get("RAZA"), 1)
+    pdf.cell(60, 7, datos.get("RAZA") or "", 1)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(25, 7, "PESO:", 1)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(80, 7, datos.get("PESO"), 1, ln=True)
+    pdf.cell(80, 7, datos.get("PESO") or "", 1, ln=True)
 
     pdf.set_font("Arial", "B", 9)
     pdf.cell(25, 7, "EDAD:", 1)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(35, 7, datos.get("EDAD"), 1)
+    pdf.cell(35, 7, str(datos.get("EDAD") or ""), 1)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(40, 7, "CAUSA DE MUERTE:", 1)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(90, 7, datos.get("CAUSA DE MUERTE"), 1, ln=True)
+    pdf.cell(90, 7, str(datos.get("CAUSA DE MUERTE") or ""), 1, ln=True)
 
-    pdf.add_labeled_line("DUEÑO O CONTRATANTE:", datos.get("DUEÑO O CONTRATANTE"))
-    pdf.add_labeled_line("DOMICILIO:", datos.get("DOMICILIO"))
-    pdf.add_labeled_line("TELEFONO(S):", datos.get("TELEFONO(S)"))
-    pdf.add_labeled_line("¿CÓMO SUPO DE NOSOTROS?", datos.get("¿CÓMO SUPO DE NOSOTROS?"))
-    pdf.add_labeled_line("LUGAR DE RECOLECCION:", datos.get("LUGAR DE RECOLECCION"))
+    pdf.add_labeled_line("DUEÑO O CONTRATANTE:", datos.get("DUEÑO O CONTRATANTE") or "")
+    pdf.add_labeled_line("DOMICILIO:", datos.get("DOMICILIO") or "")
+    pdf.add_labeled_line("TELEFONO(S):", datos.get("TELEFONO(S)") or "")
+    pdf.add_labeled_line("¿CÓMO SUPO DE NOSOTROS?", datos.get("¿CÓMO SUPO DE NOSOTROS?") or "")
+    pdf.add_labeled_line("LUGAR DE RECOLECCION:", datos.get("LUGAR DE RECOLECCION") or "")
 
     y_inicio = pdf.get_y()
     pdf.set_xy(10, y_inicio)
@@ -129,12 +133,11 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
     pdf.multi_cell(65, 5, "ESPECIFICACIONES DEL SERVICIO:\n(Certificación, lugar y fecha de entrega\nde cenizas, hora de cremación,\nobituario personalizado)", border=1)
     pdf.set_xy(75, y_inicio)
     pdf.set_font("Arial", "", 9)
-    pdf.multi_cell(125, 20, datos.get("ESPECIFICACIONES"), border=1)
+    pdf.multi_cell(125, 20, datos.get("ESPECIFICACIONES") or "", border=1)
     pdf.set_y(y_inicio + 20)
 
-    pdf.add_labeled_line("DUEÑO, DUEÑA O FAMILIA:", datos.get("FAMILIA"))
+    pdf.add_labeled_line("DUEÑO, DUEÑA O FAMILIA:", datos.get("FAMILIA") or "")
 
-    # Detalle de productos/servicios
     pdf.ln(2)
     pdf.set_fill_color(200, 200, 200)
     pdf.set_font("Arial", "B", 9)
@@ -142,22 +145,48 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
 
     pdf.set_font("Arial", "", 9)
     total = 0.0
+    
     for articulo in articulos:
         nombre = safe_str(articulo.get("nombre"))
         precio = float(articulo.get("importe") or 0.0)
         total += precio
-        pdf.cell(150, 8, nombre, border=0)
-        pdf.cell(40, 8, f"${precio:,.2f}", border=0, ln=True, align="R")
-
-    pdf.ln(10)
+        pdf.cell(150, 5, nombre, border=0) 
+        pdf.cell(40, 5, f"${precio:,.2f}", border=0, ln=True, align="R")
+    
+    total_descuentos = float(total_descuentos or 0)
+    total_con_descuento = max(total - total_descuentos, 0.0)
+    
+    pdf.ln(2) 
+    
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(150, 5, "Importe total del servicio:", border=0)
+    pdf.set_font("Arial", "", 9)
+    pdf.cell(40, 5, f"${total:,.2f}", border=0, ln=True, align="R")
+    
+    if total_descuentos > 0:
+        pdf.set_font("Arial", "B", 9)
+        pdf.cell(150, 5, "Descuento:", border=0)
+        pdf.set_font("Arial", "I", 8)
+        pdf.cell(40, 5, f"-${total_descuentos:,.2f}", border=0, ln=True, align="R")
+    
+        if descripcion_descuento:
+            pdf.set_font("Arial", "I", 7)
+            pdf.cell(0, 4, f"({descripcion_descuento})", border=0, ln=True, align="L")
+    
+    pdf.ln(1) 
+    
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(150, 8, "IMPORTE TOTAL DEL SERVICIO:", border=0)
-    pdf.cell(40, 8, f"${total:,.2f}", border=0, ln=True, align="R")
+    pdf.cell(150, 6, "Total a pagar:", border=0)
+    pdf.cell(40, 6, f"${total_con_descuento:,.2f}", border=0, ln=True, align="R")
 
+        
     tipo_pago = (campos.get("tipo_pago") or "").lower()
     monto = safe_str(campos.get("monto"))
     forma_pago = (campos.get("forma_pago") or "").lower()
     otros = safe_str(campos.get("otros"))
+
+    pdf.ln(3)
+
 
     pdf.set_font("Arial", "B", 9)
     pdf.cell(95, 6, "DETALLES DEL PAGO", ln=True)
@@ -175,7 +204,7 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
     pdf.set_font("Arial", "B", 9)
     pdf.cell(38, 6, "FECHA LIQUIDACIÓN:", ln=0)
     pdf.set_font("Arial", "", 9)
-    pdf.cell(0, 6, "", border="B", ln=1)
+    pdf.cell(0, 6, datos.get("FECHA DE LIQUIDACIÓN", "") or "", border="B", ln=1)
 
     pdf.ln(2)
     pdf.cell(35, 6, "FORMA DE PAGO:", ln=0)
@@ -217,8 +246,9 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
     año = now.year
     fecha_actual = f"el día {dia} de {mes} de {año}"
 
-    pdf.ln(4)
+    pdf.ln(2)  
     pdf.set_font("Arial", "", 8)
+    
     pagare_text = (
         f"DEBO Y PAGARÉ incondicionalmente a la orden de YAZMIN ADRIANA HERNÁNDEZ MORENO en Torreón, Coah., "
         f"ó donde exija el tenedor, {fecha_actual}, la cantidad de $ _____________ valor recibido a mi entera "
@@ -226,12 +256,41 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
         "mensual desde la fecha de su vencimiento hasta que sea totalmente cubierta, me someto a los tribunales que el tenedor "
         "señale y renuncio al fuero de mi domicilio."
     )
+    
+    x_inicio, y_inicio = pdf.get_x(), pdf.get_y()
+    ancho_total = pdf.w - pdf.l_margin - pdf.r_margin
+    
+    pdf.line(pdf.l_margin, y_inicio, pdf.l_margin + ancho_total, y_inicio)
+    
+    pdf.multi_cell(0, 4, pagare_text, border="LR", align="J")
+    
+    altura_firma = 15 
+    pdf.cell(0, altura_firma, "", border="LR", ln=True)
+    
+    y_final = pdf.get_y()
+    pdf.line(pdf.l_margin, y_final, pdf.l_margin + ancho_total, y_final)
+    
+    x_linea = pdf.l_margin + ancho_total - 35  
+    y_linea = y_final - altura_firma + 8  
+    
+    pdf.line(x_linea, y_linea, x_linea + 28, y_linea)
+    
+    pdf.set_xy(x_linea, y_linea + 1.5)  
+    pdf.set_font("Arial", "", 7)
+    pdf.cell(28, 4, "Acepto Nombre y Firma", align="C")
+    
+    if firma_bytes:
+        import tempfile, os
+        temp_dir = tempfile.gettempdir()
+        firma_path = os.path.join(temp_dir, "firma.png")
+        with open(firma_path, "wb") as f:
+            f.write(firma_bytes)
+    
+        y_firma = y_linea - 12
+        firma_ancho = 7
+        pdf.image(firma_path, x=x_linea + 10, y=y_firma, w=firma_ancho)
 
-    pdf.multi_cell(0, 4.5, pagare_text, border=1, align="J")
 
-    pdf.ln(2)
-    pdf.set_font("Arial", "", 9)
-    pdf.cell(0, 6, "Acepto Nombre y Firma", ln=True, align="R")
 
     pdf_str = pdf.output(dest='S')
     pdf_bytes = pdf_str.encode('latin1')

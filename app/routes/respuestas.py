@@ -57,7 +57,7 @@ def guardar_respuestas():
                 formulario_id, seccion_id, pregunta_id, columna_id,
                 texto_respuesta, numero_respuesta, sc_clave, firma_binaria,
                 cantidad, precio_unitario, importe_total, articulo_clave,
-                respuesta_grupo_id 
+                respuesta_grupo_id
             ))
 
         cur.execute("SELECT COUNT(*) FROM rdb$procedures WHERE rdb$procedure_name = 'PROC_GENERA_PEDIDO'")
@@ -76,9 +76,27 @@ def guardar_respuestas():
                 pedido_clave = pedido_row[0]
                 print(f"Pedido clave: {pedido_clave}")
             else:
-                print("⚠️ No se encontró pedido con ese grupo de respuestas.")
+                print("No se encontró pedido con ese grupo de respuestas.")
         else:
-            print("⚠️ El procedimiento PROC_GENERA_PEDIDO no existe. Se omitió su ejecución.")
+            print("El procedimiento PROC_GENERA_PEDIDO no existe. Se omitió su ejecución.")
+
+        descuentos = data.get('descuentos')  
+
+        if descuentos:
+            for desc in descuentos:
+                id_descuento = desc.get('id_descuento')
+                monto = desc.get('monto')
+
+                if id_descuento is not None and monto is not None:
+                    cur.execute("SELECT COALESCE(MAX(ID), 0) + 1 FROM PEDIDOS_DESCUENTOS")
+                    nuevo_id = cur.fetchone()[0]
+
+                    cur.execute("""
+                        INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO)
+                        VALUES (?, ?, ?, ?)
+                    """, (nuevo_id, id_descuento, pedido_clave, monto))
+
+                    print(f"🟢 Descuento guardado: ID {nuevo_id}, descuento {id_descuento}, monto {monto}")
 
         conn.commit()
         conn.close()
@@ -87,7 +105,7 @@ def guardar_respuestas():
             'message': 'Respuestas guardadas correctamente',
             'respuesta_grupo_id': respuesta_grupo_id,
             'pedido_clave': pedido_clave,
-            'procedimiento_ejecutado': bool(existe_proc)
+            'procedimiento_ejecutado': bool(existe_proc),
         }), 200
 
     except Exception as e:
