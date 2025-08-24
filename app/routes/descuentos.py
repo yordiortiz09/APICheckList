@@ -53,10 +53,9 @@ def guardar_descuento_pedido():
         cur.execute("SELECT COALESCE(MAX(ID), 0) + 1 FROM PEDIDOS_DESCUENTOS")
         nuevo_id = cur.fetchone()[0]
 
-        # Insertar el descuento
         cur.execute("""
-            INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO, CANCELADO)
+            VALUES (?, ?, ?, ?, 0)
         """, (nuevo_id, id_descuento, id_pedido, monto))
 
         conn.commit()

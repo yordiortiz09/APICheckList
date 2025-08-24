@@ -1,3 +1,4 @@
+import datetime
 from flask import Blueprint, request, send_file, jsonify
 from app.utils.firebird import connect_to_firebird
 from app.utils.pdf_service import generar_pdf
@@ -32,9 +33,11 @@ def generar_orden_servicio(pedido_id):
         cur.execute(f"""
             SELECT 
                 p.clave, p.referencia, p.fecha, p.hora, 
-                entidades.descripcion AS sucursal
+                entidades.descripcion AS sucursal,
+                cs.sc_nombre AS cliente_nombre
             FROM pedidos p
             LEFT OUTER JOIN entidades ON p.clvent = entidades.clave
+            LEFT OUTER JOIN cat_sujcolectivos cs ON p.scc_clave = cs.sc_clave
             WHERE p.clave = {pedido_id}
         """)
         pedido_info = cur.fetchone()
@@ -44,8 +47,17 @@ def generar_orden_servicio(pedido_id):
         clave_pedido = pedido_info[0]
         referencia_pedido = pedido_info[1]
         fecha_pedido = pedido_info[2]
+        if isinstance(fecha_pedido, str):
+            try:
+                fecha_pedido = datetime.strptime(fecha_pedido, "%Y-%m-%d")
+            except ValueError:
+              print("❌ Error al parsear la fecha del pedido, usando valor crudo.")
         hora_pedido = pedido_info[3]
         sucursal = pedido_info[4] or "No especificada"
+        nombre_cliente = pedido_info[5] or "NO IDENTIFICADO"
+
+
+        print(f"Pedido encontrado: {clave_pedido}, Referencia: {referencia_pedido}, Fecha: {fecha_pedido}, Hora: {hora_pedido}, Sucursal: {sucursal}")
 
         recolector_nombre = "NO IDENTIFICADO"
         grupo_resp = None
@@ -100,7 +112,7 @@ def generar_orden_servicio(pedido_id):
             "PESO": obtener_campo(16),
             "EDAD": obtener_campo(17),
             "CAUSA DE MUERTE": obtener_campo(18),
-            "DUEÑO O CONTRATANTE": obtener_campo(19),
+            "DUEÑO O CONTRATANTE": nombre_cliente,
             "DOMICILIO": obtener_campo(22),
             "TELEFONO(S)": obtener_campo(23),
             "¿CÓMO SUPO DE NOSOTROS?": obtener_campo(20),
@@ -110,6 +122,19 @@ def generar_orden_servicio(pedido_id):
             "FECHA DE LIQUIDACIÓN": obtener_campo(24),
         }
 
+        cur.execute(f"""
+            SELECT "COMMENT"
+            FROM PEDIDOS
+            WHERE CLAVE = {pedido_id}
+        """)
+        comment_row = cur.fetchone()
+        if comment_row and comment_row[0]:
+            try:
+                comentario = str(comment_row[0])
+                datos["ESPECIFICACIONES"] = comentario
+            except Exception:
+                datos["ESPECIFICACIONES"] = ""
+        
         if grupo_resp:
             cur.execute(f"""
                 SELECT UPPER(TEXTO_RESPUESTA)
@@ -134,7 +159,7 @@ def generar_orden_servicio(pedido_id):
         cur.execute(f"""
             SELECT COALESCE(SUM(monto), 0)
             FROM pedidos_descuentos
-            WHERE id_pedido = {pedido_id}
+            WHERE id_pedido = {pedido_id} AND cancelado = 0
         """)
         total_descuentos = cur.fetchone()[0] or 0.0
 
@@ -142,7 +167,8 @@ def generar_orden_servicio(pedido_id):
              SELECT FIRST 1 c.DESCRIPCION
              FROM pedidos_descuentos p
              JOIN cat_descuento_pedido c ON p.id_descuento = c.id_descuento
-             WHERE CAST(p.id_pedido AS INTEGER) = ?
+             WHERE CAST(p.id_pedido AS INTEGER) = ? AND p.cancelado = 0
+                    
          """, (pedido_id,))
         row = cur.fetchone()
         descripcion_descuento = row[0] if row else ""
@@ -163,6 +189,7 @@ def generar_orden_servicio(pedido_id):
             firma_bytes  
         )
 
+        print("✅ PDF generado exitosamente")
         response = make_response(pdf_bytes)
         response.headers.set('Content-Type', 'application/pdf')
         response.headers.set('Content-Disposition', f'attachment; filename=orden_servicio_{pedido_id}.pdf')

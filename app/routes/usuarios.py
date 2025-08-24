@@ -315,7 +315,7 @@ def get_pedido_detalle(clave_pedido):
             SELECT p.id_descuento, c.descripcion, p.monto
             FROM pedidos_descuentos p
             JOIN cat_descuento_pedido c ON p.id_descuento = c.id_descuento
-            WHERE p.id_pedido = ?
+            WHERE p.id_pedido = ? AND p.cancelado = 0
         """, (clave_pedido,))
 
         descuentos_raw = cur.fetchall()
@@ -324,6 +324,8 @@ def get_pedido_detalle(clave_pedido):
                 'id_descuento': row[0],
                 'descripcion': row[1],
                 'monto': float(row[2]) if row[2] is not None else 0
+                
+                
             }
             for row in descuentos_raw
         ]
@@ -481,17 +483,64 @@ def actualizar_pedido(clave_pedido):
                 total
             ))
 
-        cur.execute("DELETE FROM PEDIDOS_DESCUENTOS WHERE ID_PEDIDO = ?", (clave_pedido,))
-
+        cur.execute("""
+            SELECT ID_DESCUENTO FROM PEDIDOS_DESCUENTOS 
+            WHERE ID_PEDIDO = ? AND CANCELADO = 0
+        """, (clave_pedido,))
+        descuentos_actuales = set(row[0] for row in cur.fetchall())
+        
+        # Obtenemos los nuevos que vienen desde el request
+        descuentos_nuevos = set()
+        
         for desc in descuentos:
             id_descuento = int(desc.get("id_descuento"))
             monto = float(desc.get("monto", 0))
-            id_unico = cur.execute("SELECT GEN_ID(GEN_PEDIDOS_DESCUENTOS_ID, 1) FROM RDB$DATABASE").fetchone()[0]
-
+            descuentos_nuevos.add(id_descuento)
+        
+            # verificamos si ya existe el descuento para este pedido, activo o cancelado
             cur.execute("""
-                INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO)
-                VALUES (?, ?, ?, ?)
-            """, (id_unico, id_descuento, clave_pedido, monto))
+                SELECT ID, CANCELADO FROM PEDIDOS_DESCUENTOS 
+                WHERE ID_PEDIDO = ? AND ID_DESCUENTO = ?
+            """, (clave_pedido, id_descuento))
+            row = cur.fetchone()
+        
+            if row:
+                id_registro, cancelado = row
+                if cancelado == 1:
+                    # si está cancelado, lo reactivamos y actualiza monto
+                    cur.execute("""
+                        UPDATE PEDIDOS_DESCUENTOS
+                        SET MONTO = ?, CANCELADO = 0
+                        WHERE ID = ?
+                    """, (monto, id_registro))
+                    print(f"descuento reactivado: ID {id_registro}, descuento {id_descuento}, monto {monto}")
+                else:
+                    # ya existe y está activo, solo se actualizaaa monto
+                    cur.execute("""
+                        UPDATE PEDIDOS_DESCUENTOS
+                        SET MONTO = ?
+                        WHERE ID = ?
+                    """, (monto, id_registro))
+                    print(f"descuento actualizado: ID {id_registro}, descuento {id_descuento}, monto {monto}")
+            else:
+                # no existe, se insertaa nuevo descuento
+                id_unico = cur.execute("SELECT GEN_ID(GEN_PEDIDOS_DESCUENTOS_ID, 1) FROM RDB$DATABASE").fetchone()[0]
+                cur.execute("""
+                    INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO, CANCELADO)
+                    VALUES (?, ?, ?, ?, 0)
+                """, (id_unico, id_descuento, clave_pedido, monto))
+                print(f"descuento insertado: ID {id_unico}, descuento {id_descuento}, monto {monto}")
+        
+        ids_a_cancelar = descuentos_actuales - descuentos_nuevos
+        for id_descuento in ids_a_cancelar:
+            cur.execute("""
+                UPDATE PEDIDOS_DESCUENTOS
+                SET CANCELADO = 1
+                WHERE ID_PEDIDO = ? AND ID_DESCUENTO = ?
+            """, (clave_pedido, id_descuento))
+            print(f"descuento cancelado: ID_DESC {id_descuento} (ya no está en el request)")
+
+
 
         conn.commit()
         conn.close()

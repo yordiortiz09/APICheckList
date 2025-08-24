@@ -1,8 +1,9 @@
 from fpdf import FPDF
 from datetime import datetime
 from io import BytesIO
-from datetime import datetime, time
+from datetime import datetime, time, date
 import locale
+
 class PDF(FPDF):
 
     def __init__(self, orden_servicio="", folio_fisico="", sucursal="", recolector="", total_descuento=0.0, descripcion_descuento="", firma_bytes=None, *args, **kwargs):
@@ -46,16 +47,20 @@ class PDF(FPDF):
 
         self.ln(5)
 
+    
     def formatear_fecha(self, fecha):
+        formatos = ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y']
         if isinstance(fecha, str):
-            try:
-                fecha_dt = datetime.strptime(fecha, '%Y-%m-%d')
-                return fecha_dt.strftime('%d/%m/%Y')
-            except ValueError:
-                return fecha
-        elif isinstance(fecha, datetime):
+            for fmt in formatos:
+                try:
+                    fecha_dt = datetime.strptime(fecha, fmt)
+                    return fecha_dt.strftime('%d/%m/%Y')
+                except ValueError:
+                    continue
+            return fecha  
+        elif isinstance(fecha, datetime) or isinstance(fecha, date):
             return fecha.strftime('%d/%m/%Y')
-        return datetime.now().strftime('%d/%m/%Y')
+        return ""  
 
     def formatear_hora(self, hora):
         if isinstance(hora, time):
