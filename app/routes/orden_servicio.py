@@ -134,18 +134,7 @@ def generar_orden_servicio(pedido_id):
                 datos["ESPECIFICACIONES"] = comentario
             except Exception:
                 datos["ESPECIFICACIONES"] = ""
-        
-        if grupo_resp:
-            cur.execute(f"""
-                SELECT UPPER(TEXTO_RESPUESTA)
-                FROM RESPUESTAS
-                WHERE RESPUESTA_GRUPO_ID = {grupo_resp}
-                AND PREGUNTA_ID = 23
-            """)
-            espec_row = cur.fetchone()
-            if espec_row and espec_row[0]:
-                datos["ESPECIFICACIONES"] = espec_row[0]
-
+                
         cur.execute(f"""
             SELECT pedidosartic.clave, pedidosartic.clvarticulo, articuloventa.nombre,
                    ROUND((pedidosartic.cantidadalter * pedidosartic.precioalter) + 
