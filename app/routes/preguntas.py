@@ -9,8 +9,7 @@ def insertar_pregunta():
         data = request.json
         dsn = data.get('dsn')
         user = data.get('user')
-        password = data.get('password')
-
+        password = data.get('password')       
         seccion_id = data.get('seccion_id')
         pregunta_padre_id = data.get('pregunta_padre_id')
         pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')
