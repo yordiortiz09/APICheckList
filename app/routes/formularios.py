@@ -318,6 +318,87 @@ def insertar_columna():
     except Exception as e:
         print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@formularios_bp.route('/columnas/<int:columna_id>', methods=['PUT'])
+def actualizar_columna(columna_id):
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+        nombre = data.get('nombre')
+        tipo = data.get('tipo')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        if not nombre and not tipo:
+            return jsonify({'error': 'Debe proporcionar al menos un campo a actualizar: nombre o tipo'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+
+        campos_actualizar = []
+        valores = []
+
+        if nombre:
+            campos_actualizar.append("nombre = ?")
+            valores.append(nombre)
+        if tipo:
+            campos_actualizar.append("tipo = ?")
+            valores.append(tipo)
+
+        valores.append(columna_id)
+
+        query = f"UPDATE columnas SET {', '.join(campos_actualizar)} WHERE id = ?"
+        cur.execute(query, tuple(valores))
+        conn.commit()
+
+        if cur.rowcount == 0:
+            return jsonify({'error': 'No se encontró la columna con el ID proporcionado'}), 404
+
+        return jsonify({'id': columna_id, 'message': 'Columna actualizada correctamente'}), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@formularios_bp.route('/columnas/<int:columna_id>', methods=['DELETE'])
+def eliminar_columna(columna_id):
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM opciones WHERE columna_id = ?", (columna_id,))
+        
+        cur.execute("DELETE FROM columnas WHERE id = ?", (columna_id,))
+        conn.commit()
+
+        if cur.rowcount == 0:
+            return jsonify({'error': 'No se encontró la columna con el ID proporcionado'}), 404
+
+        return jsonify({'message': 'Columna eliminada correctamente'}), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
     
 @formularios_bp.route('/opciones', methods=['POST'])
 def insertar_opcion():
@@ -372,3 +453,63 @@ def insertar_opcion():
         return jsonify({'error': str(e)}), 500
 
 
+@formularios_bp.route('/opciones/<int:opcion_id>', methods=['PUT'])
+def actualizar_opcion(opcion_id):
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+        valor = data.get('valor')
+
+        if not all([dsn, user, password, valor]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password, valor'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE opciones SET valor = ? WHERE id = ?",
+            (valor, opcion_id)
+        )
+        conn.commit()
+
+        if cur.rowcount == 0:
+            return jsonify({'error': 'No se encontró la opción con el ID proporcionado'}), 404
+
+        return jsonify({'id': opcion_id, 'message': 'Opción actualizada correctamente'}), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@formularios_bp.route('/opciones/<int:opcion_id>', methods=['DELETE'])
+def eliminar_opcion(opcion_id):
+    try:
+        data = request.json
+        dsn = data.get('dsn')
+        user = data.get('user')
+        password = data.get('password')
+
+        if not all([dsn, user, password]):
+            return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
+
+        conn = connect_to_firebird(dsn, user, password)
+        if not conn:
+            return jsonify({'error': 'No se pudo conectar a la base de datos'}), 500
+
+        cur = conn.cursor()
+        cur.execute("DELETE FROM opciones WHERE id = ?", (opcion_id,))
+        conn.commit()
+
+        if cur.rowcount == 0:
+            return jsonify({'error': 'No se encontró la opción con el ID proporcionado'}), 404
+
+        return jsonify({'message': 'Opción eliminada correctamente'}), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
