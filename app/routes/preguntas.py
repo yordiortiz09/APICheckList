@@ -17,6 +17,7 @@ def insertar_pregunta():
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
         con_foto = data.get('con_foto', False)
+        obligatoria = data.get('obligatoria', False)
 
         if not all([dsn, user, password, texto, tipo]):
             return jsonify({'error': 'Faltan parámetros obligatorios'}), 400
@@ -29,10 +30,10 @@ def insertar_pregunta():
                 return jsonify({'error': 'Error: Una pregunta debe pertenecer a una sección o tener un padre'}), 400
 
             cur.execute("""
-                INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
-            """, (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto))
+            """, (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria))
 
             pregunta_id = cur.fetchone()[0]
             conn.commit()
@@ -56,6 +57,7 @@ def actualizar_pregunta(pregunta_id):
         tipo = data.get('tipo')
         con_filas = data.get('con_filas', False)
         con_foto = data.get('con_foto', False)
+        obligatoria = data.get('obligatoria', False)
         pregunta_padre_id = data.get('pregunta_padre_id')
         pregunta_padre_opcion_id = data.get('pregunta_padre_opcion_id')
         seccion_id = data.get('seccion_id')
@@ -94,6 +96,9 @@ def actualizar_pregunta(pregunta_id):
             if isinstance(con_foto, bool):
                 campos_a_actualizar.append("con_foto = ?")
                 valores.append(int(con_foto))
+            if isinstance(obligatoria, bool):
+                campos_a_actualizar.append("obligatoria = ?")
+                valores.append(int(obligatoria))
             if pregunta_padre_id is not None:
                 campos_a_actualizar.append("pregunta_padre_id = ?")
                 valores.append(pregunta_padre_id)

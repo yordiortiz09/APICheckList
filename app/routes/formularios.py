@@ -111,6 +111,7 @@ def obtener_formularios():
                     p.TIPO AS pregunta_tipo,
                     COALESCE(p.CON_FILAS, 0) AS pregunta_con_filas,
                     COALESCE(p.CON_FOTO, 0) AS pregunta_con_foto,
+                    COALESCE(p.OBLIGATORIA, 0) AS pregunta_obligatoria,
                     COALESCE(p.PREGUNTA_PADRE_ID, 0) AS pregunta_padre_id,
                     COALESCE(p.PREGUNTA_PADRE_OPCION_ID, 0) AS pregunta_padre_opcion_id,
 
@@ -148,6 +149,7 @@ def obtener_formularios():
                  seccion_id, seccion_nombre,
                  pregunta_id, pregunta_texto, pregunta_tipo,
                  pregunta_con_filas, pregunta_con_foto,
+                 pregunta_obligatoria,
                  pregunta_padre_id, pregunta_padre_opcion_id,
                  opcion_id, opcion_valor,
                  columna_id, columna_nombre, columna_tipo,
@@ -155,6 +157,7 @@ def obtener_formularios():
 
                 pregunta_con_filas = bool(pregunta_con_filas)
                 pregunta_con_foto = bool(pregunta_con_foto)
+                pregunta_obligatoria = bool(pregunta_obligatoria)
 
                 if formulario_id not in formularios:
                     formularios[formulario_id] = {
@@ -184,10 +187,11 @@ def obtener_formularios():
                             'tipo': pregunta_tipo,
                             'con_filas': pregunta_con_filas,
                             'con_foto': pregunta_con_foto,
+                            'obligatoria': pregunta_obligatoria,
                             'opciones': [],
                             'subPreguntas': [],
                             'columnas': []
-                        }
+                         }
 
                     if pregunta_padre_id > 0:
                         parent_map_pregunta[pregunta_id] = pregunta_padre_id
