@@ -1,3 +1,4 @@
+
 # app/routes/formularios.py
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
@@ -112,6 +113,7 @@ def obtener_formularios():
                     COALESCE(p.CON_FILAS, 0) AS pregunta_con_filas,
                     COALESCE(p.CON_FOTO, 0) AS pregunta_con_foto,
                     COALESCE(p.OBLIGATORIA, 0) AS pregunta_obligatoria,
+                    COALESCE(p.ORDEN, 0) AS pregunta_orden,
                     COALESCE(p.PREGUNTA_PADRE_ID, 0) AS pregunta_padre_id,
                     COALESCE(p.PREGUNTA_PADRE_OPCION_ID, 0) AS pregunta_padre_opcion_id,
 
@@ -131,7 +133,7 @@ def obtener_formularios():
                 LEFT JOIN OPCIONES o ON (o.PREGUNTA_ID = p.ID AND o.COLUMNA_ID IS NULL)
                 LEFT JOIN COLUMNAS c ON c.PREGUNTA_ID = p.ID
                 LEFT JOIN OPCIONES oc ON oc.COLUMNA_ID = c.ID
-                ORDER BY f.ID, s.ID, p.ID, o.ID, c.ID, oc.ID
+                ORDER BY f.ID, s.ID, p.ORDEN, p.ID, o.ID, c.ID, oc.ID
             """)
 
             rows = cur.fetchall()
@@ -148,8 +150,7 @@ def obtener_formularios():
                 (formulario_id, formulario_titulo, formulario_fecha,
                  seccion_id, seccion_nombre,
                  pregunta_id, pregunta_texto, pregunta_tipo,
-                 pregunta_con_filas, pregunta_con_foto,
-                 pregunta_obligatoria,
+                 pregunta_con_filas, pregunta_con_foto, pregunta_obligatoria, pregunta_orden,
                  pregunta_padre_id, pregunta_padre_opcion_id,
                  opcion_id, opcion_valor,
                  columna_id, columna_nombre, columna_tipo,
@@ -188,10 +189,11 @@ def obtener_formularios():
                             'con_filas': pregunta_con_filas,
                             'con_foto': pregunta_con_foto,
                             'obligatoria': pregunta_obligatoria,
+                            'orden': pregunta_orden,
                             'opciones': [],
                             'subPreguntas': [],
                             'columnas': []
-                         }
+                        }
 
                     if pregunta_padre_id > 0:
                         parent_map_pregunta[pregunta_id] = pregunta_padre_id
@@ -268,7 +270,7 @@ def obtener_formularios():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+        
 @formularios_bp.route('/columnas', methods=['POST'])
 def insertar_columna():
     try:
