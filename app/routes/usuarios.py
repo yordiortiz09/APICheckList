@@ -122,7 +122,6 @@ def get_users():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-
 @usuarios_bp.route('/get_pedidos', methods=['POST'])
 def get_pedidos():
     try:
@@ -133,46 +132,85 @@ def get_pedidos():
         password = data.get('password')
         fecha_inicio = data.get('fecha_inicio')
         fecha_fin = data.get('fecha_fin')
-
+        # ✅ NUEVO: Recibir el rol del usuario
+        user_role = data.get('user_role')  # 'administrador' o 'vendedor'
         if not all([sc_clave, dsn, user, password, fecha_inicio, fecha_fin]):
             return jsonify({'error': 'Faltan parámetros: sc_clave, dsn, user, password, fecha_inicio, fecha_fin'}), 400
-
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
-            cur.execute("""
-                SELECT 
-              P.CLAVE, 
-              P.FECHA, 
-              P.TOTAL, 
-              P.ESTADO, 
-              P.CANCELADO,
-              (
-                SELECT PC.PC_VALOR
-                FROM PEDIDOSCAMPOS PC
-                WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 13
-                FETCH FIRST 1 ROWS ONLY
-              ) AS MASCOTA,
-              (
-                SELECT PC.PC_VALOR
-                FROM PEDIDOSCAMPOS PC
-                WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 22
-                FETCH FIRST 1 ROWS ONLY
-              ) AS LUGAR_RECOLECCION,
-              (
-                SELECT COUNT(*)
-                FROM PEDIDOSARTIC A
-                WHERE A.CLVVENTA = P.CLAVE
-              ) AS NUM_PRODUCTOS
-            FROM PEDIDOS P
-            WHERE P.SCP_CLAVEVENDEDOR = ?
-              AND P.FECHA BETWEEN ? AND ?
-            ORDER BY P.FECHA DESC
             
-                  """, (sc_clave, fecha_inicio, fecha_fin))
+            # ✅ CAMBIO: Query dinámico según el rol
+            if user_role == 'administrador':
+                
+                # Administrador ve TODOS los pedidos
+                query = """
+                    SELECT 
+                        P.CLAVE, 
+                        P.FECHA, 
+                        P.TOTAL, 
+                        P.ESTADO, 
+                        P.CANCELADO,
+                        (
+                            SELECT PC.PC_VALOR
+                            FROM PEDIDOSCAMPOS PC
+                            WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 13
+                            FETCH FIRST 1 ROWS ONLY
+                        ) AS MASCOTA,
+                        (
+                            SELECT PC.PC_VALOR
+                            FROM PEDIDOSCAMPOS PC
+                            WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 22
+                            FETCH FIRST 1 ROWS ONLY
+                        ) AS LUGAR_RECOLECCION,
+                        (
+                            SELECT COUNT(*)
+                            FROM PEDIDOSARTIC A
+                            WHERE A.CLVVENTA = P.CLAVE
+                        ) AS NUM_PRODUCTOS,
+                        P.SCP_CLAVEVENDEDOR AS VENDEDOR_ID
+                    FROM PEDIDOS P
+                    WHERE P.FECHA BETWEEN ? AND ?
+                    ORDER BY P.FECHA DESC
+                """
+                params = (fecha_inicio, fecha_fin)
+            else:
+                # Vendedor normal solo ve sus pedidos
+                query = """
+                    SELECT 
+                        P.CLAVE, 
+                        P.FECHA, 
+                        P.TOTAL, 
+                        P.ESTADO, 
+                        P.CANCELADO,
+                        (
+                            SELECT PC.PC_VALOR
+                            FROM PEDIDOSCAMPOS PC
+                            WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 13
+                            FETCH FIRST 1 ROWS ONLY
+                        ) AS MASCOTA,
+                        (
+                            SELECT PC.PC_VALOR
+                            FROM PEDIDOSCAMPOS PC
+                            WHERE PC.PC_CLAVEVENTA = P.CLAVE AND PC.CC_CLAVECAMPO = 22
+                            FETCH FIRST 1 ROWS ONLY
+                        ) AS LUGAR_RECOLECCION,
+                        (
+                            SELECT COUNT(*)
+                            FROM PEDIDOSARTIC A
+                            WHERE A.CLVVENTA = P.CLAVE
+                        ) AS NUM_PRODUCTOS,
+                        P.SCP_CLAVEVENDEDOR AS VENDEDOR_ID
+                    FROM PEDIDOS P
+                    WHERE P.SCP_CLAVEVENDEDOR = ?
+                        AND P.FECHA BETWEEN ? AND ?
+                    ORDER BY P.FECHA DESC
+                """
+                params = (sc_clave, fecha_inicio, fecha_fin)
+                print(params)
             
-                    
+            cur.execute(query, params)
             rows = cur.fetchall()
-                    
+            
             pedidos = [
                 {
                     'clave': row[0],
@@ -182,14 +220,15 @@ def get_pedidos():
                     'cancelado': row[4],
                     'mascota': row[5] or 'Sin nombre',
                     'lugar_recoleccion': row[6] or 'No especificado',
-                    'num_productos': row[7]
+                    'num_productos': row[7],
+                    'vendedor_id': row[8]  # ✅ Útil para mostrar quién hizo el pedido
                 } for row in rows
             ]
-
+            print(pedidos)
             return jsonify({'pedidos': pedidos}), 200
-
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @usuarios_bp.route('/get_pedido_detalle/<clave_pedido>', methods=['POST'])
 def get_pedido_detalle(clave_pedido):

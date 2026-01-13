@@ -91,14 +91,48 @@ def obtener_formularios():
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
-
         if not all([dsn, user, password]):
             return jsonify({'error': 'Faltan parámetros: dsn, user, password'}), 400
-
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
             
+            # ✅ PASO 1: Verificar qué columnas existen en la tabla PREGUNTAS
             cur.execute("""
+                SELECT RDB$FIELD_NAME
+                FROM RDB$RELATION_FIELDS 
+                WHERE RDB$RELATION_NAME = 'PREGUNTAS'
+            """)
+            
+            columnas_existentes = {row[0].strip() for row in cur.fetchall()}
+            
+            # Verificar cada columna opcional
+            tiene_validaciones = 'VALIDACIONES' in columnas_existentes
+            tiene_orden = 'ORDEN' in columnas_existentes
+            tiene_con_filas = 'CON_FILAS' in columnas_existentes
+            tiene_con_foto = 'CON_FOTO' in columnas_existentes
+            tiene_obligatoria = 'OBLIGATORIA' in columnas_existentes
+            tiene_pregunta_padre_id = 'PREGUNTA_PADRE_ID' in columnas_existentes
+            tiene_pregunta_padre_opcion_id = 'PREGUNTA_PADRE_OPCION_ID' in columnas_existentes
+            
+            # Log de columnas
+            print(f"📊 Esquema de BD detectado:")
+            print(f"   VALIDACIONES: {'✅' if tiene_validaciones else '❌'}")
+            print(f"   ORDEN: {'✅' if tiene_orden else '❌'}")
+            print(f"   CON_FILAS: {'✅' if tiene_con_filas else '❌'}")
+            print(f"   CON_FOTO: {'✅' if tiene_con_foto else '❌'}")
+            print(f"   OBLIGATORIA: {'✅' if tiene_obligatoria else '❌'}")
+            
+            # ✅ PASO 2: Construir campos dinámicamente
+            validaciones_field = "p.VALIDACIONES" if tiene_validaciones else "NULL"
+            orden_field = "COALESCE(p.ORDEN, 0)" if tiene_orden else "0"
+            con_filas_field = "COALESCE(p.CON_FILAS, 0)" if tiene_con_filas else "0"
+            con_foto_field = "COALESCE(p.CON_FOTO, 0)" if tiene_con_foto else "0"
+            obligatoria_field = "COALESCE(p.OBLIGATORIA, 0)" if tiene_obligatoria else "0"
+            pregunta_padre_id_field = "COALESCE(p.PREGUNTA_PADRE_ID, 0)" if tiene_pregunta_padre_id else "0"
+            pregunta_padre_opcion_id_field = "COALESCE(p.PREGUNTA_PADRE_OPCION_ID, 0)" if tiene_pregunta_padre_opcion_id else "0"
+            
+            # ✅ PASO 3: Construir query dinámicamente
+            query = f"""
                 SELECT
                     f.ID AS formulario_id,
                     f.TITULO AS formulario_titulo,
@@ -106,60 +140,52 @@ def obtener_formularios():
                     
                     s.ID AS seccion_id,
                     s.NOMBRE AS seccion_nombre,
-
                     p.ID AS pregunta_id,
                     p.TEXTO AS pregunta_texto,
                     p.TIPO AS pregunta_tipo,
-                    COALESCE(p.CON_FILAS, 0) AS pregunta_con_filas,
-                    COALESCE(p.CON_FOTO, 0) AS pregunta_con_foto,
-                    COALESCE(p.OBLIGATORIA, 0) AS pregunta_obligatoria,
-                    COALESCE(p.ORDEN, 0) AS pregunta_orden,
-                    COALESCE(p.PREGUNTA_PADRE_ID, 0) AS pregunta_padre_id,
-                    COALESCE(p.PREGUNTA_PADRE_OPCION_ID, 0) AS pregunta_padre_opcion_id,
-
+                    {con_filas_field} AS pregunta_con_filas,
+                    {con_foto_field} AS pregunta_con_foto,
+                    {obligatoria_field} AS pregunta_obligatoria,
+                    {orden_field} AS pregunta_orden,
+                    {pregunta_padre_id_field} AS pregunta_padre_id,
+                    {pregunta_padre_opcion_id_field} AS pregunta_padre_opcion_id,
+                    {validaciones_field} AS pregunta_validaciones,
                     o.ID AS opcion_id,
                     o.VALOR AS opcion_valor,
-
                     c.ID AS columna_id,
                     c.NOMBRE AS columna_nombre,
                     c.TIPO AS columna_tipo,
-
                     oc.ID AS opcion_columna_id,
                     oc.VALOR AS opcion_columna_valor
-
                 FROM FORMULARIOS f
                 LEFT JOIN SECCIONES s ON s.FORMULARIO_ID = f.ID
-                LEFT JOIN PREGUNTAS p ON (p.SECCION_ID = s.ID OR p.PREGUNTA_PADRE_ID IS NOT NULL OR p.PREGUNTA_PADRE_OPCION_ID IS NOT NULL)
+                LEFT JOIN PREGUNTAS p ON p.SECCION_ID = s.ID
                 LEFT JOIN OPCIONES o ON (o.PREGUNTA_ID = p.ID AND o.COLUMNA_ID IS NULL)
                 LEFT JOIN COLUMNAS c ON c.PREGUNTA_ID = p.ID
                 LEFT JOIN OPCIONES oc ON oc.COLUMNA_ID = c.ID
-                ORDER BY f.ID, s.ID, p.ORDEN, p.ID, o.ID, c.ID, oc.ID
-            """)
-
+                ORDER BY f.ID, s.ID, p.ID, o.ID, c.ID, oc.ID
+            """
+            
+            cur.execute(query)
             rows = cur.fetchall()
-
             formularios = {}
             preguntas_dict = {}
             opciones_dict = {}
             columnas_dict = {}
-
             parent_map_pregunta = {} 
             parent_map_opcion = {}
-
             for row in rows:
                 (formulario_id, formulario_titulo, formulario_fecha,
                  seccion_id, seccion_nombre,
                  pregunta_id, pregunta_texto, pregunta_tipo,
                  pregunta_con_filas, pregunta_con_foto, pregunta_obligatoria, pregunta_orden,
-                 pregunta_padre_id, pregunta_padre_opcion_id,
+                 pregunta_padre_id, pregunta_padre_opcion_id, pregunta_validaciones,
                  opcion_id, opcion_valor,
                  columna_id, columna_nombre, columna_tipo,
                  opcion_columna_id, opcion_columna_valor) = row
-
                 pregunta_con_filas = bool(pregunta_con_filas)
                 pregunta_con_foto = bool(pregunta_con_foto)
                 pregunta_obligatoria = bool(pregunta_obligatoria)
-
                 if formulario_id not in formularios:
                     formularios[formulario_id] = {
                         'id': formulario_id,
@@ -168,7 +194,6 @@ def obtener_formularios():
                         'secciones': []
                     }
                 formulario = formularios[formulario_id]
-
                 seccion = None
                 if seccion_id is not None:
                     seccion = next((sec for sec in formulario['secciones'] if sec['id'] == seccion_id), None)
@@ -179,7 +204,6 @@ def obtener_formularios():
                             'preguntas': []
                         }
                         formulario['secciones'].append(seccion)
-
                 if pregunta_id is not None:
                     if pregunta_id not in preguntas_dict:
                         preguntas_dict[pregunta_id] = {
@@ -190,16 +214,15 @@ def obtener_formularios():
                             'con_foto': pregunta_con_foto,
                             'obligatoria': pregunta_obligatoria,
                             'orden': pregunta_orden,
+                            'validaciones': pregunta_validaciones,
                             'opciones': [],
                             'subPreguntas': [],
                             'columnas': []
                         }
-
                     if pregunta_padre_id > 0:
                         parent_map_pregunta[pregunta_id] = pregunta_padre_id
                     if pregunta_padre_opcion_id > 0:
                         parent_map_opcion[pregunta_id] = pregunta_padre_opcion_id
-
                 if columna_id is not None:
                     if columna_id not in columnas_dict:
                         columnas_dict[columna_id] = {
@@ -213,8 +236,6 @@ def obtener_formularios():
                         pregunta = preguntas_dict[pregunta_id]
                         if not any(col['id'] == columna_id for col in pregunta['columnas']):
                             pregunta['columnas'].append(columnas_dict[columna_id])
-                            print(f"   ✅ Columna agregada: '{columna_nombre}' a pregunta {pregunta_id}")
-
                 if opcion_columna_id is not None and columna_id is not None:
                     opcion_col = {
                         'id': opcion_columna_id,
@@ -223,8 +244,6 @@ def obtener_formularios():
                     columna = columnas_dict[columna_id]
                     if not any(op['id'] == opcion_columna_id for op in columna['opciones']):
                         columna['opciones'].append(opcion_col)
-                        print(f"      ✅ Opción columna agregada: '{opcion_columna_valor}' a columna {columna_id}")
-
                 if opcion_id is not None:
                     if opcion_id not in opciones_dict:
                         opciones_dict[opcion_id] = {
@@ -232,39 +251,32 @@ def obtener_formularios():
                             'valor': opcion_valor,
                             'subPreguntas': []
                         }
-
                 # Agregar opción a pregunta
                 if pregunta_id is not None and opcion_id is not None:
                     if opcion_id in opciones_dict:
                         opcion = opciones_dict[opcion_id]
                         if not any(op['id'] == opcion_id for op in preguntas_dict[pregunta_id]['opciones']):
                             preguntas_dict[pregunta_id]['opciones'].append(opcion)
-
                 # Agregar pregunta raíz a sección
                 if pregunta_id is not None and pregunta_padre_id == 0 and pregunta_padre_opcion_id == 0 and seccion:
                     if not any(p['id'] == pregunta_id for p in seccion['preguntas']):
                         seccion['preguntas'].append(preguntas_dict[pregunta_id])
-
             # Construir jerarquía de subpreguntas
             for p_id, p_data in preguntas_dict.items():
                 padre_id = parent_map_pregunta.get(p_id, 0)
                 padre_opcion_id = parent_map_opcion.get(p_id, 0)
-
                 if padre_id > 0 and padre_id in preguntas_dict:
                     padre_pregunta = preguntas_dict[padre_id]
                     if not any(sp['id'] == p_id for sp in padre_pregunta['subPreguntas']):
                         padre_pregunta['subPreguntas'].append(p_data)
-
                 elif padre_opcion_id > 0 and padre_opcion_id in opciones_dict:
                     padre_opcion = opciones_dict[padre_opcion_id]
                     if not any(sp['id'] == p_id for sp in padre_opcion['subPreguntas']):
                         padre_opcion['subPreguntas'].append(p_data)
-
             resultado = list(formularios.values())
             print(f"📦 Formularios retornados: {len(resultado)}")
             
             return jsonify(resultado)
-
     except Exception as e:
         print(f"❌ Error en obtener_formularios: {str(e)}")
         import traceback

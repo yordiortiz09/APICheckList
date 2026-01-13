@@ -29,15 +29,29 @@ def insertar_pregunta():
             if seccion_id is None and pregunta_padre_id is None and pregunta_padre_opcion_id is None:
                 return jsonify({'error': 'Error: Una pregunta debe pertenecer a una sección o tener un padre'}), 400
 
+            # Verificar si la columna 'orden' existe en la tabla
             cur.execute("""
-                INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria, orden)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id
-            """, (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria, orden))
+                SELECT COUNT(*) FROM RDB$RELATION_FIELDS 
+                WHERE RDB$RELATION_NAME = 'PREGUNTAS' AND RDB$FIELD_NAME = 'ORDEN'
+            """)
+            columna_orden_existe = cur.fetchone()[0] > 0
+
+            if columna_orden_existe:
+                cur.execute("""
+                    INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria, orden)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    RETURNING id
+                """, (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria, orden))
+            else:
+                cur.execute("""
+                    INSERT INTO preguntas (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    RETURNING id
+                """, (seccion_id, pregunta_padre_id, pregunta_padre_opcion_id, texto, tipo, con_filas, con_foto, obligatoria))
 
             pregunta_id = cur.fetchone()[0]
             conn.commit()
-            print(f'🟢 Pregunta insertada en BD: ID {pregunta_id}, Orden: {orden}')
+            print(f'🟢 Pregunta insertada en BD: ID {pregunta_id}, Orden: {orden if columna_orden_existe else "N/A"}')
             
             return jsonify({'id': pregunta_id, 'message': 'Pregunta insertada correctamente'}), 200
 
@@ -74,6 +88,13 @@ def actualizar_pregunta(pregunta_id):
             if not pregunta_existente:
                 return jsonify({'error': 'La pregunta no existe'}), 404
 
+            # Verificar si la columna 'orden' existe en la tabla
+            cur.execute("""
+                SELECT COUNT(*) FROM RDB$RELATION_FIELDS 
+                WHERE RDB$RELATION_NAME = 'PREGUNTAS' AND RDB$FIELD_NAME = 'ORDEN'
+            """)
+            columna_orden_existe = cur.fetchone()[0] > 0
+
             campos_a_actualizar = []
             valores = []
 
@@ -101,7 +122,7 @@ def actualizar_pregunta(pregunta_id):
             if seccion_id is not None:
                 campos_a_actualizar.append("seccion_id = ?")
                 valores.append(seccion_id)
-            if orden is not None:
+            if orden is not None and columna_orden_existe:
                 campos_a_actualizar.append("orden = ?")
                 valores.append(orden)
 
