@@ -91,7 +91,7 @@ class PDF(FPDF):
 
 
 def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, referencia_pedido: str,
-                fecha: str, hora: str, sucursal: str, recolector: str, total_descuentos: float, descripcion_descuento: str, firma_bytes=None) -> bytes:
+                fecha: str, hora: str, sucursal: str, recolector: str, total_descuentos: float, descripcion_descuento: str, firma_bytes=None, dsn: str = "") -> bytes:
     pdf = PDF(orden_servicio=clave_pedido, folio_fisico=referencia_pedido, sucursal=sucursal, recolector=recolector, total_descuento=total_descuentos, descripcion_descuento=descripcion_descuento, firma_bytes=firma_bytes)
     pdf.fecha_pedido = fecha
     pdf.hora_pedido = hora
@@ -254,8 +254,12 @@ def generar_pdf(datos: dict, articulos: list, campos: dict, clave_pedido: str, r
     pdf.ln(2)  
     pdf.set_font("Arial", "", 8)
     
+    # Si es la conexión demo, no mostrar nombre, solo una línea
+    es_demo = "DEMOCREMAPET" in dsn.upper() if dsn else False
+    nombre_pagare = "_____________________________________" if es_demo else "YAZMIN ADRIANA HERNÁNDEZ MORENO"
+
     pagare_text = (
-        f"DEBO Y PAGARÉ incondicionalmente a la orden de YAZMIN ADRIANA HERNÁNDEZ MORENO en Torreón, Coah., "
+        f"DEBO Y PAGARÉ incondicionalmente a la orden de {nombre_pagare} en Torreón, Coah., "
         f"ó donde exija el tenedor, {fecha_actual}, la cantidad de $ _____________ valor recibido a mi entera "
         "satisfacción. Si no fuera cubierta a su vencimiento la suma que este pagaré expresa, cubriré además el ______ % de interés "
         "mensual desde la fecha de su vencimiento hasta que sea totalmente cubierta, me someto a los tribunales que el tenedor "

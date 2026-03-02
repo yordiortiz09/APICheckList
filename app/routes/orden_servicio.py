@@ -171,7 +171,8 @@ def generar_orden_servicio(pedido_id):
                 fecha_pedido, hora_pedido,
                 sucursal, recolector_nombre,
                 total_descuentos, descripcion_descuento,
-                firma_bytes  
+                firma_bytes,
+                dsn=dsn
             )
 
             print("✅ PDF generado exitosamente")
