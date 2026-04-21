@@ -462,6 +462,14 @@ def actualizar_pedido(clave_pedido):
                 cur.execute("UPDATE PEDIDOS SET hora = ? WHERE clave = ?", (data['hora_pedido'], clave_pedido))
             if 'cliente' in data:
                 cur.execute("UPDATE PEDIDOS SET scc_clave = ? WHERE clave = ?", (data['cliente'], clave_pedido))
+            if 'sucursal' in data and data['sucursal']:
+                cur.execute("SELECT clave FROM entidades WHERE descripcion = ?", (data['sucursal'],))
+                entidad_row = cur.fetchone()
+                if entidad_row:
+                    cur.execute("UPDATE PEDIDOS SET clvent = ? WHERE clave = ?", (entidad_row[0], clave_pedido))
+                    print(f"[INFO] Sucursal actualizada: {data['sucursal']} -> clave {entidad_row[0]}")
+                else:
+                    print(f"[WARN] Sucursal '{data['sucursal']}' no encontrada en entidades")
 
             cur.execute("DELETE FROM PEDIDOSARTIC WHERE CLVVENTA = ?", (clave_pedido,))
 

@@ -206,6 +206,17 @@ def obtener_formularios():
                         formulario['secciones'].append(seccion)
                 if pregunta_id is not None:
                     if pregunta_id not in preguntas_dict:
+                        validaciones_final = pregunta_validaciones
+                        if pregunta_obligatoria:
+                            import json as _json
+                            try:
+                                parsed = _json.loads(validaciones_final) if isinstance(validaciones_final, str) and validaciones_final.strip() else {}
+                            except Exception:
+                                parsed = {}
+                            if not isinstance(parsed, dict):
+                                parsed = {}
+                            parsed['required'] = True
+                            validaciones_final = _json.dumps(parsed)
                         preguntas_dict[pregunta_id] = {
                             'id': pregunta_id,
                             'texto': pregunta_texto,
@@ -214,7 +225,7 @@ def obtener_formularios():
                             'con_foto': pregunta_con_foto,
                             'obligatoria': pregunta_obligatoria,
                             'orden': pregunta_orden,
-                            'validaciones': pregunta_validaciones,
+                            'validaciones': validaciones_final,
                             'opciones': [],
                             'subPreguntas': [],
                             'columnas': []

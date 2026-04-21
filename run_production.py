@@ -18,15 +18,15 @@ app = create_app()
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🚀 Iniciando servidor de producción")
+    print("Iniciando servidor de produccion")
     print("=" * 60)
-    print("📡 Host: 0.0.0.0")
-    print("🔌 Puerto: 5000")
-    print("🧵 Threads: 6")
-    print("🔧 Servidor: Waitress (Production WSGI)")
+    print("Host: 0.0.0.0")
+    print("Puerto: 5000")
+    print("Threads: 6")
+    print("Servidor: Waitress (Production WSGI)")
     print("=" * 60)
-    print("✅ Servidor activo en http://0.0.0.0:5000")
+    print("Servidor activo en http://0.0.0.0:5000")
     print("Presiona CTRL+C para detener")
     print("=" * 60)
-    
+
     serve(app, host='0.0.0.0', port=5000, threads=6)
