@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
+from app.utils.logging_utils import log_error
 
 secciones_bp = Blueprint('secciones', __name__)
 
@@ -25,7 +26,7 @@ def eliminar_seccion(seccion_id):
             return jsonify({'message': 'Sección eliminada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        log_error('Error en secciones', excepcion=e)
         return jsonify({'error': str(e)}), 500
 
 
@@ -54,7 +55,7 @@ def insertar_seccion():
             return jsonify({'id': seccion_id, 'message': 'Sección insertada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        log_error('Error en secciones', excepcion=e)
         return jsonify({'error': str(e)}), 500
     
 
@@ -81,6 +82,6 @@ def actualizar_seccion(seccion_id):
             return jsonify({'id': seccion_id, 'message': 'Sección actualizada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        log_error('Error en secciones', excepcion=e)
         return jsonify({'error': str(e)}), 500
 

@@ -2,6 +2,7 @@
 # app/routes/formularios.py
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
+from app.utils.logging_utils import log_info, log_error
 
 formularios_bp = Blueprint('formularios', __name__)
 
@@ -28,8 +29,8 @@ def insertar_formulario():
             return jsonify({'id': formulario_id, 'message': 'Formulario insertado correctamente'})
             
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
 
 
 @formularios_bp.route('/formularios/<int:formulario_id>', methods=['PUT'])
@@ -55,8 +56,8 @@ def actualizar_formulario(formulario_id):
             return jsonify({'id': formulario_id, 'message': 'Formulario actualizado correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
 
 
 @formularios_bp.route('/formularios/<int:formulario_id>', methods=['DELETE'])
@@ -81,8 +82,8 @@ def eliminar_formulario(formulario_id):
             return jsonify({'message': 'Formulario eliminado correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
     
 @formularios_bp.route('/formularios_get', methods=['POST'])
 def obtener_formularios():
@@ -96,7 +97,7 @@ def obtener_formularios():
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
             
-            # ✅ PASO 1: Verificar qué columnas existen en la tabla PREGUNTAS
+            # PASO 1: Verificar qué columnas existen en la tabla PREGUNTAS
             cur.execute("""
                 SELECT RDB$FIELD_NAME
                 FROM RDB$RELATION_FIELDS 
@@ -115,14 +116,14 @@ def obtener_formularios():
             tiene_pregunta_padre_opcion_id = 'PREGUNTA_PADRE_OPCION_ID' in columnas_existentes
             
             # Log de columnas
-            print(f"📊 Esquema de BD detectado:")
-            print(f"   VALIDACIONES: {'✅' if tiene_validaciones else '❌'}")
-            print(f"   ORDEN: {'✅' if tiene_orden else '❌'}")
-            print(f"   CON_FILAS: {'✅' if tiene_con_filas else '❌'}")
-            print(f"   CON_FOTO: {'✅' if tiene_con_foto else '❌'}")
-            print(f"   OBLIGATORIA: {'✅' if tiene_obligatoria else '❌'}")
+            log_info('Esquema de BD detectado',
+                     validaciones=tiene_validaciones,
+                     orden=tiene_orden,
+                     con_filas=tiene_con_filas,
+                     con_foto=tiene_con_foto,
+                     obligatoria=tiene_obligatoria)
             
-            # ✅ PASO 2: Construir campos dinámicamente
+            # PASO 2: Construir campos dinámicamente
             validaciones_field = "p.VALIDACIONES" if tiene_validaciones else "NULL"
             orden_field = "COALESCE(p.ORDEN, 0)" if tiene_orden else "0"
             con_filas_field = "COALESCE(p.CON_FILAS, 0)" if tiene_con_filas else "0"
@@ -131,7 +132,7 @@ def obtener_formularios():
             pregunta_padre_id_field = "COALESCE(p.PREGUNTA_PADRE_ID, 0)" if tiene_pregunta_padre_id else "0"
             pregunta_padre_opcion_id_field = "COALESCE(p.PREGUNTA_PADRE_OPCION_ID, 0)" if tiene_pregunta_padre_opcion_id else "0"
             
-            # ✅ PASO 3: Construir query dinámicamente
+            # PASO 3: Construir query dinámicamente
             query = f"""
                 SELECT
                     f.ID AS formulario_id,
@@ -285,14 +286,15 @@ def obtener_formularios():
                     if not any(sp['id'] == p_id for sp in padre_opcion['subPreguntas']):
                         padre_opcion['subPreguntas'].append(p_data)
             resultado = list(formularios.values())
-            print(f"📦 Formularios retornados: {len(resultado)}")
+            log_info(f'Formularios retornados: {len(resultado)}')
             
             return jsonify(resultado)
     except Exception as e:
-        print(f"❌ Error en obtener_formularios: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en obtener_formularios', excepcion=e)
+        return jsonify({
+            'error': 'Error obteniendo formularios',
+            'detalle': str(e)
+        }), 500
         
 @formularios_bp.route('/columnas', methods=['POST'])
 def insertar_columna():
@@ -331,8 +333,8 @@ def insertar_columna():
             return jsonify({'id': columna_id, 'message': 'Columna insertada correctamente'})
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
 
 
 @formularios_bp.route('/columnas/<int:columna_id>', methods=['PUT'])
@@ -376,8 +378,8 @@ def actualizar_columna(columna_id):
             return jsonify({'id': columna_id, 'message': 'Columna actualizada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
 
 
 @formularios_bp.route('/columnas/<int:columna_id>', methods=['DELETE'])
@@ -405,8 +407,8 @@ def eliminar_columna(columna_id):
             return jsonify({'message': 'Columna eliminada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
 
     
 @formularios_bp.route('/opciones', methods=['POST'])
@@ -453,10 +455,11 @@ def insertar_opcion():
             return jsonify({'id': opcion_id, 'message': 'Opción insertada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en insertar_opcion', excepcion=e)
+        return jsonify({
+            'error': 'Error procesando la peticion',
+            'detalle': str(e)
+        }), 500
 
 
 @formularios_bp.route('/opciones/<int:opcion_id>', methods=['PUT'])
@@ -485,8 +488,8 @@ def actualizar_opcion(opcion_id):
             return jsonify({'id': opcion_id, 'message': 'Opción actualizada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
 
 
 @formularios_bp.route('/opciones/<int:opcion_id>', methods=['DELETE'])
@@ -511,5 +514,5 @@ def eliminar_opcion(opcion_id):
             return jsonify({'message': 'Opción eliminada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint formularios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500

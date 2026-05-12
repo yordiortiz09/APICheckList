@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
+from app.utils.logging_utils import log_info, log_warning, log_error
 
 respuestas_bp = Blueprint('respuestas', __name__)
 
@@ -7,15 +8,18 @@ respuestas_bp = Blueprint('respuestas', __name__)
 @respuestas_bp.route('/guardar_respuestas', methods=['POST'])
 def guardar_respuestas():
     try:
-        data = request.json
-        print("📥 Guardando respuestas...")
+        data = request.json or {}
+        log_info('Inicio guardar_respuestas',
+                 num_respuestas=len(data.get('respuestas', [])),
+                 sc_clave_recibido=bool(data.get('respuestas', [{}])[0].get('sc_clave') if data.get('respuestas') else None))
 
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
 
         if not all([dsn, user, password]):
-            return jsonify({'error': 'Faltan parámetros de conexión'}), 400
+            log_warning('Faltan parametros de conexion en guardar_respuestas')
+            return jsonify({'error': 'Faltan parametros de conexion'}), 400
 
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
@@ -27,6 +31,7 @@ def guardar_respuestas():
 
             respuestas = data.get('respuestas', [])
             if not respuestas:
+                log_warning('No se recibieron respuestas en guardar_respuestas')
                 return jsonify({'error': 'No se recibieron respuestas'}), 400
 
             respuesta_ids = {}
@@ -46,7 +51,14 @@ def guardar_respuestas():
                 articulo_clave = respuesta.get('articulo_clave')
 
                 if not all([formulario_id, seccion_id, pregunta_id, sc_clave]):
-                    return jsonify({'error': f'Faltan campos en respuesta #{i+1}'}), 400
+                    faltantes = []
+                    if not formulario_id: faltantes.append('formulario_id')
+                    if not seccion_id: faltantes.append('seccion_id')
+                    if not pregunta_id: faltantes.append('pregunta_id')
+                    if not sc_clave: faltantes.append('sc_clave')
+                    detalle = f'Faltan campos en respuesta #{i+1}: {faltantes}. Recibido: formulario_id={formulario_id}, seccion_id={seccion_id}, pregunta_id={pregunta_id}, sc_clave={sc_clave}'
+                    log_warning(detalle, indice=i, faltantes=faltantes)
+                    return jsonify({'error': detalle}), 400
 
                 firma_binaria = None
                 if firma_base64:
@@ -111,9 +123,12 @@ def guardar_respuestas():
             }), 200
 
     except Exception as e:
-        print("❌ Excepción:", str(e))
-        return jsonify({'error': str(e)}), 500
-    
+        log_error('Excepcion en guardar_respuestas', excepcion=e)
+        return jsonify({
+            'error': 'Error al guardar las respuestas',
+            'detalle': str(e)
+        }), 500
+
 @respuestas_bp.route('/guardar_fotos', methods=['POST'])
 def guardar_fotos():
     """
@@ -126,7 +141,7 @@ def guardar_fotos():
         "fotos": [
             {
                 "respuesta_id": 123,
-                "respuesta_grupo_id": 456,  // ✅ NUEVO
+                "respuesta_grupo_id": 456,  // NUEVO
                 "pregunta_id": 45,
                 "url_s3": "https://...",
                 "nombre_archivo": "abc123.jpg",
@@ -138,28 +153,31 @@ def guardar_fotos():
     }
     """
     try:
-        data = request.json
-        print("📸 Guardando fotos...")
+        data = request.json or {}
+        log_info('Inicio guardar_fotos', num_fotos=len(data.get('fotos', [])))
 
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
 
         if not all([dsn, user, password]):
-            return jsonify({'error': 'Faltan parámetros de conexión'}), 400
+            log_warning('Faltan parametros de conexion en guardar_fotos')
+            return jsonify({'error': 'Faltan parametros de conexion'}), 400
 
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
             fotos = data.get('fotos', [])
-            
+
             if not fotos:
+                log_warning('No se recibieron fotos en guardar_fotos')
                 return jsonify({'error': 'No se recibieron fotos'}), 400
 
             fotos_guardadas = 0
+            fotos_fallidas = []
 
-            for foto in fotos:
+            for idx, foto in enumerate(fotos):
                 respuesta_id = foto.get('respuesta_id')
-                respuesta_grupo_id = foto.get('respuesta_grupo_id') 
+                respuesta_grupo_id = foto.get('respuesta_grupo_id')
                 pregunta_id = foto.get('pregunta_id')
                 url_s3 = foto.get('url_s3')
                 nombre_archivo = foto.get('nombre_archivo')
@@ -168,7 +186,8 @@ def guardar_fotos():
                 orden = foto.get('orden', 1)
 
                 if not all([respuesta_id, respuesta_grupo_id, pregunta_id, url_s3]):
-                    print(f"⚠️ Foto ignorada por falta de datos: {foto}")
+                    log_warning('Foto ignorada por falta de datos', indice=idx, foto=foto)
+                    fotos_fallidas.append({'indice': idx, 'motivo': 'campos requeridos faltantes'})
                     continue
 
                 try:
@@ -185,7 +204,7 @@ def guardar_fotos():
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         respuesta_id,
-                        respuesta_grupo_id,  # ✅ NUEVO
+                        respuesta_grupo_id,
                         pregunta_id,
                         url_s3,
                         nombre_archivo,
@@ -193,12 +212,14 @@ def guardar_fotos():
                         tipo_contenido,
                         orden
                     ))
-                    
+
                     fotos_guardadas += 1
-                    print(f"✅ Foto guardada: {nombre_archivo} (Grupo {respuesta_grupo_id})")
+                    log_info('Foto guardada', nombre=nombre_archivo, grupo=respuesta_grupo_id)
 
                 except Exception as e:
-                    print(f"❌ Error guardando foto: {e}")
+                    log_error('Error guardando foto individual', excepcion=e,
+                              indice=idx, nombre=nombre_archivo)
+                    fotos_fallidas.append({'indice': idx, 'motivo': str(e)})
                     continue
 
             conn.commit()
@@ -206,12 +227,16 @@ def guardar_fotos():
             return jsonify({
                 'message': 'Fotos guardadas correctamente',
                 'fotos_guardadas': fotos_guardadas,
-                'fotos_recibidas': len(fotos)
+                'fotos_recibidas': len(fotos),
+                'fotos_fallidas': fotos_fallidas
             }), 200
 
     except Exception as e:
-        print("❌ Excepción:", str(e))
-        return jsonify({'error': str(e)}), 500
+        log_error('Excepcion en guardar_fotos', excepcion=e)
+        return jsonify({
+            'error': 'Error al guardar las fotos',
+            'detalle': str(e)
+        }), 500
 
 
 @respuestas_bp.route('/historial_respuestas', methods=['POST'])
@@ -221,8 +246,8 @@ def historial_respuestas():
     Filtros opcionales: formulario_id, sc_clave, fecha_inicio, fecha_fin
     """
     try:
-        data = request.json
-        print("📋 Obteniendo historial de respuestas...")
+        data = request.json or {}
+        log_info('Inicio historial_respuestas')
 
         dsn = data.get('dsn')
         user = data.get('user')
@@ -234,7 +259,8 @@ def historial_respuestas():
         fecha_fin = data.get('fecha_fin')
 
         if not all([dsn, user, password]):
-            return jsonify({'error': 'Faltan parámetros de conexión'}), 400
+            log_warning('Faltan parametros de conexion en historial_respuestas')
+            return jsonify({'error': 'Faltan parametros de conexion'}), 400
 
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
@@ -281,14 +307,15 @@ def historial_respuestas():
                     'total_fotos': row[6]
                 })
 
-            print(f"📦 Historial retornado: {len(historial)} grupos")
+            log_info(f'Historial retornado: {len(historial)} grupos')
             return jsonify({'historial': historial}), 200
 
     except Exception as e:
-        print("❌ Excepción:", str(e))
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        log_error('Excepcion en historial_respuestas', excepcion=e)
+        return jsonify({
+            'error': 'Error al obtener historial',
+            'detalle': str(e)
+        }), 500
 
 
 @respuestas_bp.route('/respuestas_detalle/<int:grupo_id>', methods=['POST'])
@@ -298,15 +325,16 @@ def respuestas_detalle(grupo_id):
     Incluye: respuestas individuales, preguntas asociadas y fotos.
     """
     try:
-        data = request.json
-        print(f"🔍 Obteniendo detalle del grupo {grupo_id}...")
+        data = request.json or {}
+        log_info(f'Inicio respuestas_detalle grupo={grupo_id}')
 
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
 
         if not all([dsn, user, password]):
-            return jsonify({'error': 'Faltan parámetros de conexión'}), 400
+            log_warning('Faltan parametros de conexion en respuestas_detalle')
+            return jsonify({'error': 'Faltan parametros de conexion'}), 400
 
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
@@ -323,6 +351,7 @@ def respuestas_detalle(grupo_id):
             
             grupo_info = cur.fetchone()
             if not grupo_info:
+                log_warning(f'Grupo de respuestas no encontrado: grupo_id={grupo_id}')
                 return jsonify({'error': 'Grupo de respuestas no encontrado'}), 404
 
             cur.execute("""
@@ -407,11 +436,12 @@ def respuestas_detalle(grupo_id):
                 'total_fotos': len(fotos_rows)
             }
 
-            print(f"✅ Detalle obtenido: {len(respuestas)} respuestas, {len(fotos_rows)} fotos")
+            log_info(f'Detalle obtenido: {len(respuestas)} respuestas, {len(fotos_rows)} fotos')
             return jsonify(resultado), 200
 
     except Exception as e:
-        print("❌ Excepción:", str(e))
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        log_error('Excepcion en respuestas_detalle', excepcion=e, grupo_id=grupo_id)
+        return jsonify({
+            'error': 'Error al obtener detalle del grupo',
+            'detalle': str(e)
+        }), 500

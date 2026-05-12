@@ -1,6 +1,10 @@
 # app/utils/firebird.py
 import fdb
+import logging
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
+
 
 def connect_to_firebird(dsn, user, password):
     try:
@@ -9,23 +13,23 @@ def connect_to_firebird(dsn, user, password):
             user=user,
             password=password
         )
-        print("Conexión establecida con Firebird")
+        logger.info('Conexion establecida con Firebird')
         return connection
     except Exception as e:
-        print(f"Error conectando a Firebird: {str(e)}")
+        logger.error(f'Error conectando a Firebird: {str(e)}', exc_info=True)
         return None
+
 
 @contextmanager
 def get_firebird_connection(dsn, user, password):
     """
     Context manager para manejar conexiones de Firebird de forma segura.
     Asegura que las conexiones siempre se cierren, incluso si hay errores.
-    
+
     Uso:
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM tabla")
-            # La conexión se cierra automáticamente al salir del bloque
     """
     conn = None
     try:
@@ -34,17 +38,20 @@ def get_firebird_connection(dsn, user, password):
             user=user,
             password=password
         )
-        print("Conexión establecida con Firebird")
+        logger.info('Conexion establecida con Firebird')
         yield conn
     except Exception as e:
-        print(f"Error en conexión Firebird: {str(e)}")
+        logger.error(f'Error en conexion Firebird: {str(e)}', exc_info=True)
         if conn:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         raise
     finally:
         if conn:
             try:
                 conn.close()
-                print("Conexión cerrada correctamente")
+                logger.info('Conexion cerrada correctamente')
             except Exception as e:
-                print(f"Error cerrando conexión: {str(e)}")
+                logger.error(f'Error cerrando conexion: {str(e)}', exc_info=True)

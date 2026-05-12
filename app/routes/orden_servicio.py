@@ -2,10 +2,9 @@ import datetime
 from flask import Blueprint, request, send_file, jsonify
 from app.utils.firebird import get_firebird_connection
 from app.utils.pdf_service import generar_pdf
+from app.utils.logging_utils import log_info, log_warning, log_error
 from io import BytesIO
 from flask import make_response
-
-import traceback
 
 bp_orden = Blueprint("orden_servicio", __name__)
 
@@ -47,13 +46,13 @@ def generar_orden_servicio(pedido_id):
             if isinstance(fecha_pedido, str):
                 try:
                     fecha_pedido = datetime.strptime(fecha_pedido, "%Y-%m-%d")
-                except ValueError:
-                    print("❌ Error al parsear la fecha del pedido, usando valor crudo.")
+                except ValueError as ve:
+                    log_warning(f'Error al parsear la fecha del pedido, usando valor crudo. fecha={fecha_pedido}', error=str(ve))
             hora_pedido = pedido_info[3]
             sucursal = pedido_info[4] or "No especificada"
             nombre_cliente = pedido_info[5] or "NO IDENTIFICADO"
 
-            print(f"Pedido encontrado: {clave_pedido}, Referencia: {referencia_pedido}, Fecha: {fecha_pedido}, Hora: {hora_pedido}, Sucursal: {sucursal}")
+            log_info(f'Pedido encontrado: {clave_pedido}, Referencia: {referencia_pedido}, Fecha: {fecha_pedido}, Hora: {hora_pedido}, Sucursal: {sucursal}')
 
             recolector_nombre = "NO IDENTIFICADO"
             grupo_resp = None
@@ -175,13 +174,15 @@ def generar_orden_servicio(pedido_id):
                 dsn=dsn
             )
 
-            print("✅ PDF generado exitosamente")
+            log_info('PDF generado exitosamente')
             response = make_response(pdf_bytes)
             response.headers.set('Content-Type', 'application/pdf')
             response.headers.set('Content-Disposition', f'attachment; filename=orden_servicio_{pedido_id}.pdf')
             return response
 
     except Exception as e:
-        print("Error en /api/pdf/orden_servicio:", e)
-        traceback.print_exc()
-        return jsonify({"error": f"Ocurrió un error: {str(e)}"}), 500
+        log_error('Error en /api/pdf/orden_servicio', excepcion=e)
+        return jsonify({
+            "error": "Error generando la orden de servicio",
+            "detalle": str(e)
+        }), 500

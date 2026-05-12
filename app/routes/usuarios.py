@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
 from app.utils.queries_pedidos import CAMPOS_PEDIDO
-import traceback
+from app.utils.logging_utils import log_info, log_warning, log_error
 
 
 
@@ -44,8 +44,8 @@ def sync_users():
             return jsonify({'success': True, 'users': users}), 200
             
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en endpoint usuarios', excepcion=e)
+        return jsonify({'error': 'Error procesando la peticion', 'detalle': str(e)}), 500
     
 @usuarios_bp.route('/verify_user', methods=['POST'])
 def verify_user():
@@ -132,14 +132,14 @@ def get_pedidos():
         password = data.get('password')
         fecha_inicio = data.get('fecha_inicio')
         fecha_fin = data.get('fecha_fin')
-        # ✅ NUEVO: Recibir el rol del usuario
+        # NUEVO: Recibir el rol del usuario
         user_role = data.get('user_role')  # 'administrador' o 'vendedor'
         if not all([sc_clave, dsn, user, password, fecha_inicio, fecha_fin]):
             return jsonify({'error': 'Faltan parámetros: sc_clave, dsn, user, password, fecha_inicio, fecha_fin'}), 400
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
             
-            # ✅ CAMBIO: Query dinámico según el rol
+            # CAMBIO: Query dinamico segun el rol
             if user_role == 'administrador':
                 
                 # Administrador ve TODOS los pedidos
@@ -206,7 +206,7 @@ def get_pedidos():
                     ORDER BY P.FECHA DESC
                 """
                 params = (sc_clave, fecha_inicio, fecha_fin)
-                print(params)
+                log_info('Consulta pedidos por vendedor', params=params)
             
             cur.execute(query, params)
             rows = cur.fetchall()
@@ -221,10 +221,10 @@ def get_pedidos():
                     'mascota': row[5] or 'Sin nombre',
                     'lugar_recoleccion': row[6] or 'No especificado',
                     'num_productos': row[7],
-                    'vendedor_id': row[8]  # ✅ Útil para mostrar quién hizo el pedido
+                    'vendedor_id': row[8]  # Util para mostrar quien hizo el pedido
                 } for row in rows
             ]
-            print(pedidos)
+            log_info(f'Pedidos retornados: {len(pedidos)}')
             return jsonify({'pedidos': pedidos}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -301,7 +301,7 @@ def get_pedido_detalle(clave_pedido):
                 "fecha_liquidacion": obtener_campo(24),
             }
 
-            print(f"Campos obtenidos: {campos}")
+            log_info(f'Campos obtenidos: {campos}')
 
             cur.execute("""
                 SELECT 
@@ -362,15 +362,19 @@ def get_pedido_detalle(clave_pedido):
             }), 200
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en get_pedido_detalle', excepcion=e)
+        return jsonify({'error': 'Error obteniendo detalle del pedido', 'detalle': str(e)}), 500
 
 
 @usuarios_bp.route('/actualizar_pedido/<clave_pedido>', methods=['POST'])
 def actualizar_pedido(clave_pedido):
     try:
-        print(f"Clave pedido recibida (tipo {type(clave_pedido)}): {clave_pedido}")
+        log_info(f'Inicio actualizar_pedido clave={clave_pedido}')
         data = request.json
-        print(f"Datos recibidos: {data}")
+        log_info('Datos recibidos en actualizar_pedido',
+                 cliente=data.get('cliente'),
+                 sucursal=data.get('sucursal'),
+                 num_campos=len(data.get('campos', {})))
 
         dsn = data.get('dsn')
         user = data.get('user')
@@ -409,11 +413,11 @@ def actualizar_pedido(clave_pedido):
             for campo_nombre, valor in cambios.items():
                 campo_id = CAMPOS_PEDIDO.get(campo_nombre)
                 if campo_id is None:
-                    print(f"[WARN] Campo '{campo_nombre}' no encontrado.")
+                    log_warning(f"Campo '{campo_nombre}' no encontrado en CAMPOS_PEDIDO")
                     continue
-            
+
                 if valor == "" or valor is None:
-                    print(f"[INFO] Campo '{campo_nombre}' viene vacío, se omite.")
+                    log_info(f"Campo '{campo_nombre}' viene vacio, se omite")
                     continue
             
                 cur.execute("""
@@ -467,9 +471,9 @@ def actualizar_pedido(clave_pedido):
                 entidad_row = cur.fetchone()
                 if entidad_row:
                     cur.execute("UPDATE PEDIDOS SET clvent = ? WHERE clave = ?", (entidad_row[0], clave_pedido))
-                    print(f"[INFO] Sucursal actualizada: {data['sucursal']} -> clave {entidad_row[0]}")
+                    log_info(f"Sucursal actualizada: {data['sucursal']} -> clave {entidad_row[0]}")
                 else:
-                    print(f"[WARN] Sucursal '{data['sucursal']}' no encontrada en entidades")
+                    log_warning(f"Sucursal '{data['sucursal']}' no encontrada en entidades")
 
             cur.execute("DELETE FROM PEDIDOSARTIC WHERE CLVVENTA = ?", (clave_pedido,))
 
@@ -535,7 +539,7 @@ def actualizar_pedido(clave_pedido):
                             SET MONTO = ?, CANCELADO = 0
                             WHERE ID = ?
                         """, (monto, id_registro))
-                        print(f"descuento reactivado: ID {id_registro}, descuento {id_descuento}, monto {monto}")
+                        log_info(f"Descuento reactivado: ID {id_registro}, descuento {id_descuento}, monto {monto}")
                     else:
                         # ya existe y está activo, solo se actualizaaa monto
                         cur.execute("""
@@ -543,7 +547,7 @@ def actualizar_pedido(clave_pedido):
                             SET MONTO = ?
                             WHERE ID = ?
                         """, (monto, id_registro))
-                        print(f"descuento actualizado: ID {id_registro}, descuento {id_descuento}, monto {monto}")
+                        log_info(f"Descuento actualizado: ID {id_registro}, descuento {id_descuento}, monto {monto}")
                 else:
                     # no existe, se insertaa nuevo descuento
                     id_unico = cur.execute("SELECT GEN_ID(GEN_PEDIDOS_DESCUENTOS_ID, 1) FROM RDB$DATABASE").fetchone()[0]
@@ -551,7 +555,7 @@ def actualizar_pedido(clave_pedido):
                         INSERT INTO PEDIDOS_DESCUENTOS (ID, ID_DESCUENTO, ID_PEDIDO, MONTO, CANCELADO)
                         VALUES (?, ?, ?, ?, 0)
                     """, (id_unico, id_descuento, clave_pedido, monto))
-                    print(f"descuento insertado: ID {id_unico}, descuento {id_descuento}, monto {monto}")
+                    log_info(f"Descuento insertado: ID {id_unico}, descuento {id_descuento}, monto {monto}")
             
             ids_a_cancelar = descuentos_actuales - descuentos_nuevos
             for id_descuento in ids_a_cancelar:
@@ -560,13 +564,16 @@ def actualizar_pedido(clave_pedido):
                     SET CANCELADO = 1
                     WHERE ID_PEDIDO = ? AND ID_DESCUENTO = ?
                 """, (clave_pedido, id_descuento))
-                print(f"descuento cancelado: ID_DESC {id_descuento} (ya no está en el request)")
+                log_info(f"Descuento cancelado: ID_DESC {id_descuento} (ya no esta en el request)")
 
             conn.commit()
 
-            print("✅ Pedido actualizado correctamente")
+            log_info(f'Pedido actualizado correctamente: clave={clave_pedido}')
             return jsonify({'mensaje': 'Pedido actualizado correctamente'}), 200
 
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en actualizar_pedido', excepcion=e, clave_pedido=clave_pedido)
+        return jsonify({
+            'error': 'Error actualizando el pedido',
+            'detalle': str(e)
+        }), 500

@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
+from app.utils.logging_utils import log_error
 
 descuentos_bp = Blueprint('descuentos', __name__)
 
@@ -21,7 +22,7 @@ def obtener_catalogo_descuentos():
             return jsonify(descuentos), 200
 
     except Exception as e:
-        print(f"🔴 Error al obtener catálogo de descuentos: {str(e)}")
+        log_error('Error al obtener catalogo de descuentos', excepcion=e)
         return jsonify({"error": str(e)}), 500
 
 
@@ -53,9 +54,10 @@ def guardar_descuento_pedido():
             """, (nuevo_id, id_descuento, id_pedido, monto))
 
             conn.commit()
-            print(f"🟢 Descuento guardado para pedido {id_pedido} (ID: {nuevo_id})")
+            from app.utils.logging_utils import log_info
+            log_info(f'Descuento guardado para pedido {id_pedido} (ID: {nuevo_id})')
             return jsonify({'id': nuevo_id, 'message': 'Descuento guardado correctamente'}), 200
 
     except Exception as e:
-        print(f"🔴 Error al guardar descuento: {str(e)}")
+        log_error('Error al guardar descuento', excepcion=e)
         return jsonify({'error': str(e)}), 500

@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
+from app.utils.logging_utils import log_error
 
 preguntas_bp = Blueprint('preguntas', __name__)
 
@@ -51,12 +52,13 @@ def insertar_pregunta():
 
             pregunta_id = cur.fetchone()[0]
             conn.commit()
-            print(f'🟢 Pregunta insertada en BD: ID {pregunta_id}, Orden: {orden if columna_orden_existe else "N/A"}')
+            from app.utils.logging_utils import log_info
+            log_info(f'Pregunta insertada en BD: ID {pregunta_id}, Orden: {orden if columna_orden_existe else "N/A"}')
             
             return jsonify({'id': pregunta_id, 'message': 'Pregunta insertada correctamente'}), 200
 
     except Exception as e:
-        print(f"🔴 Error al insertar pregunta: {str(e)}")
+        log_error('Error al insertar pregunta', excepcion=e)
         return jsonify({'error': str(e)}), 500
 
 
@@ -138,7 +140,7 @@ def actualizar_pregunta(pregunta_id):
             return jsonify({'id': pregunta_id, 'message': 'Pregunta actualizada correctamente'}), 200
 
     except Exception as e:
-        print(f"🔴 Error: {str(e)}")
+        log_error('Error en preguntas', excepcion=e)
         return jsonify({'error': str(e)}), 500
 
 @preguntas_bp.route('/preguntas/<int:pregunta_id>', methods=['DELETE'])
@@ -163,5 +165,5 @@ def eliminar_pregunta(pregunta_id):
             return jsonify({'message': f'Pregunta con ID {pregunta_id} eliminada correctamente'}), 200
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        log_error('Error en preguntas', excepcion=e)
         return jsonify({'error': str(e)}), 500

@@ -1,19 +1,22 @@
 # app/routes/clientes.py
 from flask import Blueprint, request, jsonify
 from app.utils.firebird import get_firebird_connection
+from app.utils.logging_utils import log_info, log_warning, log_error
 
 clientes_bp = Blueprint('clientes', __name__)
 
 @clientes_bp.route('/clientes', methods=['POST'])
 def obtener_clientes():
     try:
-        data = request.json
+        log_info('Inicio obtener_clientes')
+        data = request.json or {}
         dsn = data.get('dsn')
         user = data.get('user')
         password = data.get('password')
 
         if not all([dsn, user, password]):
-            return jsonify({'error': 'Faltan parámetros'}), 400
+            log_warning('Faltan parametros de conexion en /clientes')
+            return jsonify({'error': 'Faltan parametros'}), 400
 
         with get_firebird_connection(dsn, user, password) as conn:
             cur = conn.cursor()
@@ -28,9 +31,13 @@ def obtener_clientes():
             resultados = cur.fetchall()
 
             clientes = [{'clave': row[0], 'nombre': row[1]} for row in resultados]
+            log_info(f'Clientes retornados: {len(clientes)}')
 
             return jsonify(clientes)
 
     except Exception as e:
-        print(f"Error en /clientes: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        log_error('Error en /clientes', excepcion=e)
+        return jsonify({
+            'error': 'Error obteniendo clientes',
+            'detalle': str(e)
+        }), 500
